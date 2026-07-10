@@ -13,10 +13,22 @@ description = "a lightweight vLLM implementation built from scratch"
 requires-python = ">=3.10,<3.13"
 dependencies = [
     "torch>=2.4.0",
-    "triton>=3.0.0",
+    "triton>=3.0.0; platform_system=='Linux'",
     "transformers>=4.51.0",
-    "flash-attn",
+    "flash-attn; platform_system=='Linux'",
     "xxhash",
+    "numpy",
+]
+
+[project.optional-dependencies]
+course = [
+    "pytest>=7.0",
+    "pyyaml>=6.0",
+    "tqdm",
+]
+gpu = [
+    "triton>=3.0.0",
+    "flash-attn",
 ]
 
 [project.urls]
@@ -25,3 +37,9 @@ Homepage="https://github.com/GeeeekExplorer/nano-vllm"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["nanovllm*"]
+
+[tool.pytest.ini_options]
+markers = [
+    "gpu: tests that require an NVIDIA GPU with CUDA",
+    "slow: longer-running tests",
+]

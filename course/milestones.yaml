@@ -1,0 +1,182 @@
+milestones:
+  - number: 1
+    id: sequence
+    title: Request and sequence state
+    objective: Implement Sequence initialization, token append, and block indexing.
+    cpu_only: true
+    source_files:
+      - nanovllm/engine/sequence.py
+    todo_ids:
+      - TODO-L1-SEQ-01
+      - TODO-L1-SEQ-02
+      - TODO-L1-SEQ-03
+    tests:
+      - tests/milestones/test_01_sequence.py
+    docs:
+      - docs/tutorial/02_request_and_sequence.md
+    estimated_hours: 1.5
+
+  - number: 2
+    id: scheduler_basic
+    title: Basic scheduler queues and prefill admission
+    objective: Admit waiting sequences into a prefill batch under token and seq limits.
+    cpu_only: true
+    source_files:
+      - nanovllm/engine/scheduler.py
+    todo_ids:
+      - TODO-L2-SCHED-01
+    tests:
+      - tests/milestones/test_02_scheduler_basic.py
+    docs:
+      - docs/tutorial/03_scheduler.md
+    estimated_hours: 2.5
+
+  - number: 3
+    id: prefill_decode
+    title: Prefill vs decode scheduling and postprocess
+    objective: Schedule decode tokens, preempt under memory pressure, finish sequences.
+    cpu_only: true
+    source_files:
+      - nanovllm/engine/scheduler.py
+    todo_ids:
+      - TODO-L2-SCHED-02
+      - TODO-L2-SCHED-03
+      - TODO-L2-SCHED-04
+    tests:
+      - tests/milestones/test_03_prefill_decode.py
+    docs:
+      - docs/tutorial/04_prefill_and_decode.md
+    estimated_hours: 3
+
+  - number: 4
+    id: kv_cache
+    title: KV-cache block manager
+    objective: Allocate, reuse, append, free, and hash paged KV blocks.
+    cpu_only: true
+    source_files:
+      - nanovllm/engine/block_manager.py
+    todo_ids:
+      - TODO-L2-KVCACHE-01
+      - TODO-L3-KVCACHE-02
+      - TODO-L3-KVCACHE-03
+      - TODO-L2-KVCACHE-04
+      - TODO-L2-KVCACHE-05
+      - TODO-L3-KVCACHE-06
+    tests:
+      - tests/milestones/test_04_kv_cache.py
+    docs:
+      - docs/tutorial/05_kv_cache_blocks.md
+      - docs/tutorial/12_prefix_caching.md
+    estimated_hours: 6
+
+  - number: 5
+    id: model_inputs
+    title: Model input preparation
+    objective: Build block tables, prefill/decode tensors, and slot mappings on CPU.
+    cpu_only: true
+    source_files:
+      - nanovllm/engine/input_metadata.py
+    todo_ids:
+      - TODO-L2-RUNNER-01
+      - TODO-L2-RUNNER-02
+      - TODO-L2-RUNNER-03
+    tests:
+      - tests/milestones/test_05_model_inputs.py
+    docs:
+      - docs/tutorial/06_model_runner_inputs.md
+    estimated_hours: 3
+
+  - number: 6
+    id: attention_metadata
+    title: Attention metadata integration
+    objective: Route prefill/decode attention using Context metadata and slot mapping.
+    cpu_only: true
+    source_files:
+      - nanovllm/layers/attention.py
+      - nanovllm/utils/context.py
+    todo_ids:
+      - TODO-L2-ATTN-01
+    tests:
+      - tests/milestones/test_06_attention_metadata.py
+    docs:
+      - docs/tutorial/07_attention_metadata.md
+    estimated_hours: 2
+
+  - number: 7
+    id: sampling
+    title: Sampling
+    objective: Implement temperature sampling via the Gumbel-max trick.
+    cpu_only: true
+    source_files:
+      - nanovllm/layers/sampler.py
+    todo_ids:
+      - TODO-L1-SAMPLE-01
+    tests:
+      - tests/milestones/test_07_sampling.py
+    docs:
+      - docs/tutorial/08_sampling.md
+    estimated_hours: 1
+
+  - number: 8
+    id: engine_fake
+    title: End-to-end engine with fake model
+    objective: Drive continuous batching through schedule → fake run → postprocess.
+    cpu_only: true
+    source_files:
+      - nanovllm/engine/scheduler.py
+      - nanovllm/engine/block_manager.py
+      - tests/oracles/fake_model_runner.py
+    todo_ids:
+      - TODO-L2-ENGINE-01
+    tests:
+      - tests/milestones/test_08_engine_fake.py
+    docs:
+      - docs/tutorial/09_end_to_end_eager.md
+    estimated_hours: 2
+
+  - number: 9
+    id: end_to_end_eager
+    title: Eager GPU end-to-end generation
+    objective: Run real model generation with enforce_eager=True.
+    cpu_only: false
+    source_files:
+      - nanovllm/engine/llm_engine.py
+      - nanovllm/engine/model_runner.py
+    todo_ids: []
+    tests:
+      - tests/milestones/test_09_end_to_end_eager.py
+    docs:
+      - docs/tutorial/09_end_to_end_eager.md
+    estimated_hours: 2
+
+  - number: 10
+    id: cuda_graphs
+    title: CUDA graph orchestration
+    objective: Capture and replay decode graphs; fall back to eager when needed.
+    cpu_only: false
+    source_files:
+      - nanovllm/engine/model_runner.py
+    todo_ids:
+      - TODO-L3-CUDAGRAPH-01
+      - TODO-L3-CUDAGRAPH-02
+    tests:
+      - tests/milestones/test_10_cuda_graphs.py
+    docs:
+      - docs/tutorial/10_cuda_graphs.md
+    estimated_hours: 5
+
+  - number: 11
+    id: tensor_parallel
+    title: Tensor parallelism
+    objective: Shard column-parallel weights and all-reduce row-parallel outputs.
+    cpu_only: true
+    source_files:
+      - nanovllm/layers/linear.py
+    todo_ids:
+      - TODO-L2-TP-01
+      - TODO-L3-TP-02
+    tests:
+      - tests/milestones/test_11_tensor_parallel.py
+    docs:
+      - docs/tutorial/11_tensor_parallelism.md
+    estimated_hours: 4

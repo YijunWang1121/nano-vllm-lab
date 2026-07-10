@@ -1,0 +1,287 @@
+# nano-vLLM course TODO registry.
+# Completion is tracked by tools/course_status.py (not naive grep alone).
+
+todos:
+  - id: TODO-L1-SEQ-01
+    title: Initialize sequence tracking fields
+    level: L1
+    milestone: 1
+    source_file: nanovllm/engine/sequence.py
+    symbol: Sequence.__init__
+    documentation: docs/tutorial/02_request_and_sequence.md
+    tests:
+      - tests/milestones/test_01_sequence.py
+    prerequisites: []
+
+  - id: TODO-L1-SEQ-02
+    title: Append a generated token
+    level: L1
+    milestone: 1
+    source_file: nanovllm/engine/sequence.py
+    symbol: Sequence.append_token
+    documentation: docs/tutorial/02_request_and_sequence.md
+    tests:
+      - tests/milestones/test_01_sequence.py
+    prerequisites:
+      - TODO-L1-SEQ-01
+
+  - id: TODO-L1-SEQ-03
+    title: Compute block indexing helpers
+    level: L1
+    milestone: 1
+    source_file: nanovllm/engine/sequence.py
+    symbol: Sequence.num_blocks / last_block_num_tokens / block
+    documentation: docs/tutorial/02_request_and_sequence.md
+    tests:
+      - tests/milestones/test_01_sequence.py
+    prerequisites:
+      - TODO-L1-SEQ-01
+
+  - id: TODO-L2-SCHED-01
+    title: Prefill scheduling loop
+    level: L2
+    milestone: 2
+    source_file: nanovllm/engine/scheduler.py
+    symbol: Scheduler.schedule (prefill)
+    documentation: docs/tutorial/03_scheduler.md
+    tests:
+      - tests/milestones/test_02_scheduler_basic.py
+      - tests/milestones/test_03_prefill_decode.py
+    prerequisites:
+      - TODO-L1-SEQ-01
+      - TODO-L1-SEQ-02
+      - TODO-L1-SEQ-03
+
+  - id: TODO-L2-SCHED-02
+    title: Decode scheduling loop
+    level: L2
+    milestone: 3
+    source_file: nanovllm/engine/scheduler.py
+    symbol: Scheduler.schedule (decode)
+    documentation: docs/tutorial/04_prefill_and_decode.md
+    tests:
+      - tests/milestones/test_03_prefill_decode.py
+    prerequisites:
+      - TODO-L2-SCHED-01
+
+  - id: TODO-L2-SCHED-03
+    title: Preempt a running sequence
+    level: L2
+    milestone: 3
+    source_file: nanovllm/engine/scheduler.py
+    symbol: Scheduler.preempt
+    documentation: docs/tutorial/04_prefill_and_decode.md
+    tests:
+      - tests/milestones/test_03_prefill_decode.py
+    prerequisites:
+      - TODO-L2-SCHED-02
+
+  - id: TODO-L2-SCHED-04
+    title: Postprocess sampled tokens and finish sequences
+    level: L2
+    milestone: 3
+    source_file: nanovllm/engine/scheduler.py
+    symbol: Scheduler.postprocess
+    documentation: docs/tutorial/04_prefill_and_decode.md
+    tests:
+      - tests/milestones/test_03_prefill_decode.py
+    prerequisites:
+      - TODO-L2-SCHED-02
+      - TODO-L1-SEQ-02
+
+  - id: TODO-L2-KVCACHE-01
+    title: Physical block allocate and free
+    level: L2
+    milestone: 4
+    source_file: nanovllm/engine/block_manager.py
+    symbol: BlockManager._allocate_block / _deallocate_block
+    documentation: docs/tutorial/05_kv_cache_blocks.md
+    tests:
+      - tests/milestones/test_04_kv_cache.py
+    prerequisites:
+      - TODO-L1-SEQ-03
+
+  - id: TODO-L3-KVCACHE-02
+    title: Capacity check with prefix-cache reuse
+    level: L3
+    milestone: 4
+    source_file: nanovllm/engine/block_manager.py
+    symbol: BlockManager.can_allocate
+    documentation: docs/tutorial/05_kv_cache_blocks.md
+    tests:
+      - tests/milestones/test_04_kv_cache.py
+    prerequisites:
+      - TODO-L2-KVCACHE-01
+
+  - id: TODO-L3-KVCACHE-03
+    title: Allocate block table for a sequence
+    level: L3
+    milestone: 4
+    source_file: nanovllm/engine/block_manager.py
+    symbol: BlockManager.allocate
+    documentation: docs/tutorial/05_kv_cache_blocks.md
+    tests:
+      - tests/milestones/test_04_kv_cache.py
+    prerequisites:
+      - TODO-L3-KVCACHE-02
+
+  - id: TODO-L2-KVCACHE-04
+    title: Deallocate sequence blocks
+    level: L2
+    milestone: 4
+    source_file: nanovllm/engine/block_manager.py
+    symbol: BlockManager.deallocate
+    documentation: docs/tutorial/05_kv_cache_blocks.md
+    tests:
+      - tests/milestones/test_04_kv_cache.py
+    prerequisites:
+      - TODO-L2-KVCACHE-01
+
+  - id: TODO-L2-KVCACHE-05
+    title: Append block on decode boundary
+    level: L2
+    milestone: 4
+    source_file: nanovllm/engine/block_manager.py
+    symbol: BlockManager.can_append / may_append
+    documentation: docs/tutorial/05_kv_cache_blocks.md
+    tests:
+      - tests/milestones/test_04_kv_cache.py
+    prerequisites:
+      - TODO-L2-KVCACHE-01
+
+  - id: TODO-L3-KVCACHE-06
+    title: Hash completed blocks for prefix caching
+    level: L3
+    milestone: 4
+    source_file: nanovllm/engine/block_manager.py
+    symbol: BlockManager.hash_blocks
+    documentation: docs/tutorial/12_prefix_caching.md
+    tests:
+      - tests/milestones/test_04_kv_cache.py
+    prerequisites:
+      - TODO-L3-KVCACHE-03
+
+  - id: TODO-L2-RUNNER-01
+    title: Build padded block tables
+    level: L2
+    milestone: 5
+    source_file: nanovllm/engine/input_metadata.py
+    symbol: build_block_tables
+    documentation: docs/tutorial/06_model_runner_inputs.md
+    tests:
+      - tests/milestones/test_05_model_inputs.py
+    prerequisites:
+      - TODO-L3-KVCACHE-03
+
+  - id: TODO-L2-RUNNER-02
+    title: Build prefill input metadata and slot mapping
+    level: L2
+    milestone: 5
+    source_file: nanovllm/engine/input_metadata.py
+    symbol: build_prefill_metadata
+    documentation: docs/tutorial/06_model_runner_inputs.md
+    tests:
+      - tests/milestones/test_05_model_inputs.py
+      - tests/milestones/test_06_attention_metadata.py
+    prerequisites:
+      - TODO-L2-RUNNER-01
+
+  - id: TODO-L2-RUNNER-03
+    title: Build decode input metadata
+    level: L2
+    milestone: 5
+    source_file: nanovllm/engine/input_metadata.py
+    symbol: build_decode_metadata
+    documentation: docs/tutorial/06_model_runner_inputs.md
+    tests:
+      - tests/milestones/test_05_model_inputs.py
+      - tests/milestones/test_06_attention_metadata.py
+    prerequisites:
+      - TODO-L2-RUNNER-01
+
+  - id: TODO-L2-ATTN-01
+    title: Select attention execution path from context
+    level: L2
+    milestone: 6
+    source_file: nanovllm/layers/attention.py
+    symbol: Attention.forward
+    documentation: docs/tutorial/07_attention_metadata.md
+    tests:
+      - tests/milestones/test_06_attention_metadata.py
+    prerequisites:
+      - TODO-L2-RUNNER-02
+      - TODO-L2-RUNNER-03
+
+  - id: TODO-L1-SAMPLE-01
+    title: Temperature sampling with Gumbel-max trick
+    level: L1
+    milestone: 7
+    source_file: nanovllm/layers/sampler.py
+    symbol: Sampler.forward
+    documentation: docs/tutorial/08_sampling.md
+    tests:
+      - tests/milestones/test_07_sampling.py
+    prerequisites: []
+
+  - id: TODO-L2-ENGINE-01
+    title: Wire fake end-to-end engine step
+    level: L2
+    milestone: 8
+    source_file: tests/oracles/fake_model_runner.py
+    symbol: FakeModelRunner.run (student understands contract)
+    documentation: docs/tutorial/09_end_to_end_eager.md
+    tests:
+      - tests/milestones/test_08_engine_fake.py
+    prerequisites:
+      - TODO-L2-SCHED-04
+      - TODO-L3-KVCACHE-03
+      - TODO-L1-SAMPLE-01
+
+  - id: TODO-L3-CUDAGRAPH-01
+    title: CUDA graph replay path in run_model
+    level: L3
+    milestone: 10
+    source_file: nanovllm/engine/model_runner.py
+    symbol: ModelRunner.run_model
+    documentation: docs/tutorial/10_cuda_graphs.md
+    tests:
+      - tests/milestones/test_10_cuda_graphs.py
+    prerequisites:
+      - TODO-L2-RUNNER-03
+    gpu: true
+
+  - id: TODO-L3-CUDAGRAPH-02
+    title: Capture decode CUDA graphs
+    level: L3
+    milestone: 10
+    source_file: nanovllm/engine/model_runner.py
+    symbol: ModelRunner.capture_cudagraph
+    documentation: docs/tutorial/10_cuda_graphs.md
+    tests:
+      - tests/milestones/test_10_cuda_graphs.py
+    prerequisites:
+      - TODO-L3-CUDAGRAPH-01
+    gpu: true
+
+  - id: TODO-L2-TP-01
+    title: Column-parallel weight shard loading
+    level: L2
+    milestone: 11
+    source_file: nanovllm/layers/linear.py
+    symbol: ColumnParallelLinear.weight_loader
+    documentation: docs/tutorial/11_tensor_parallelism.md
+    tests:
+      - tests/milestones/test_11_tensor_parallel.py
+    prerequisites: []
+
+  - id: TODO-L3-TP-02
+    title: Row-parallel all-reduce
+    level: L3
+    milestone: 11
+    source_file: nanovllm/layers/linear.py
+    symbol: RowParallelLinear.forward
+    documentation: docs/tutorial/11_tensor_parallelism.md
+    tests:
+      - tests/milestones/test_11_tensor_parallel.py
+    prerequisites:
+      - TODO-L2-TP-01
