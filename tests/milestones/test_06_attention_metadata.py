@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import pytest
+import torch
 
+from nanovllm.course.exceptions import CourseNotImplementedError
 from nanovllm.utils.context import Context, set_context, get_context, reset_context
 from nanovllm.engine.input_metadata import build_prefill_metadata, build_decode_metadata
-from tests.helpers import EXAMPLE_A_PROMPT, EXAMPLE_B_PROMPT, make_sequence
+from nanovllm.layers.attention import Attention
+from tests.helpers import EXAMPLE_A_PROMPT, make_sequence
 
 
 def test_context_set_and_reset():
@@ -25,8 +28,10 @@ def test_attention_path_selection_contract_from_metadata():
     a = make_sequence(EXAMPLE_A_PROMPT, block_size=4)
     a.block_table = [7, 2]
     a.num_scheduled_tokens = 5
-    prefill = build_prefill_metadata([a], 4)
-    # Prefill without prefix cache: use Q/K/V tensors directly (block_tables None).
+    try:
+        prefill = build_prefill_metadata([a], 4)
+    except CourseNotImplementedError as e:
+        pytest.fail(str(e))
     assert prefill["need_block_tables"] is False
 
     a.num_cached_tokens = 4
@@ -38,16 +43,19 @@ def test_attention_path_selection_contract_from_metadata():
     assert "slot_mapping" in decode and "context_lens" in decode
 
 
-def test_attention_forward_raises_clear_todo_when_excavated():
-    """On the student branch, Attention.forward is a TODO; on reference it needs GPU kernels.
-
-    Here we only verify the Context wiring contract used by Attention.forward.
-    """
-    from nanovllm.layers import attention as attn_mod
-
-    # Inspect that forward reads context fields (source-level contract).
-    src = attn_mod.Attention.forward.__doc__ or ""
-    # Always check context helpers exist for the attention path.
-    ctx = Context(is_prefill=True, max_seqlen_q=1, max_seqlen_k=1, slot_mapping=None)
-    assert ctx.is_prefill is True
-    assert hasattr(attn_mod.Attention, "forward")
+def test_attention_forward_todo_or_runs():
+    """On student branch, forward raises CourseNotImplementedError with TODO id."""
+    attn = Attention(num_heads=2, head_dim=4, scale=0.5, num_kv_heads=2)
+    q = k = v = torch.zeros(1, 2, 4)
+    reset_context()
+    set_context(True, max_seqlen_q=1, max_seqlen_k=1)
+    try:
+        out = attn(q, k, v)
+    except CourseNotImplementedError as e:
+        assert "TODO-L2-ATTN-01" in str(e)
+        assert "docs/tutorial/07_attention_metadata.md" in str(e)
+        return
+    except Exception:
+        # Reference/GPU path may fail without flash-attn; that is acceptable on CPU.
+        pytest.skip("Attention kernels unavailable on this platform")
+    assert out is not None
