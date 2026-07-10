@@ -14,8 +14,8 @@
 
 | Branch | SHA (at conversion) | Role |
 |---|---|---|
-| `course/reference-solutions` | `83f225500d19e719dbf3805f5a4df6c7898d64f3` | Complete implementation + course docs/tests/tools |
-| `course/student` | `c8ad405f5862348a1bf9641ecc821af50651340e` | Same architecture with excavated TODOs |
+| `course/reference-solutions` | `4f8a5f281d29ee370743c18fbe1fe2a56c991046` | Complete implementation + course docs/tests/tools |
+| `course/student` | `13997eb5b6d9415d70d3ccdb26aea0846fe15bb4` | Same architecture with excavated TODOs |
 
 **Do not implement on the reference branch.** Work only on `course/student`.
 
