@@ -14,8 +14,8 @@
 
 | Branch | SHA (at conversion) | Role |
 |---|---|---|
-| `course/reference-solutions` | `4f8a5f281d29ee370743c18fbe1fe2a56c991046` | Complete implementation + course docs/tests/tools |
-| `course/student` | `13997eb5b6d9415d70d3ccdb26aea0846fe15bb4` | Same architecture with excavated TODOs |
+| `course/reference-solutions` | `e964f8a0bf11e2e6d67558ed445b320f01c48adb` | Complete implementation + course docs/tests/tools |
+| `course/student` | `0d1eb842ec1418ebf9c8d1d270bebf345753c988` | Same architecture with excavated TODOs |
 
 **Do not implement on the reference branch.** Work only on `course/student`.
 
@@ -192,3 +192,8 @@ python example.py   # requires Qwen3-0.6B locally
 2. Read `COURSE.md` and `docs/tutorial/00_overview.md`
 3. Implement `TODO-L1-SEQ-01` … `TODO-L1-SEQ-03`
 4. Run: `python tools/run_milestone.py 1`
+
+
+## Authoritative tip SHAs
+
+Run `git rev-parse course/reference-solutions course/student` for the latest tips; the table above is accurate as of the conversion commits immediately preceding this note.
