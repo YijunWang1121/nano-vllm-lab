@@ -10,6 +10,21 @@
 
 A lightweight vLLM implementation built from scratch.
 
+## Course project fork
+
+This repository includes an educational course conversion:
+
+- Start here: [`COURSE.md`](COURSE.md)
+- Student branch: `course/student` (implement TODOs)
+- Reference branch: `course/reference-solutions` (complete solutions — do not work here)
+- Conversion report: [`COURSE_CONVERSION_REPORT.md`](COURSE_CONVERSION_REPORT.md)
+
+```bash
+git checkout course/student
+python tools/course_status.py
+python tools/run_milestone.py 1
+```
+
 ## Key Features
 
 * 🚀 **Fast offline inference** - Comparable inference speeds to vLLM
