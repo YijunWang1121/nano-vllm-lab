@@ -6,10 +6,16 @@ from multiprocessing.shared_memory import SharedMemory
 
 from nanovllm.config import Config
 from nanovllm.engine.sequence import Sequence
+from nanovllm.engine.input_metadata import (
+    build_block_tables,
+    build_prefill_metadata,
+    build_decode_metadata,
+)
 from nanovllm.models.qwen3 import Qwen3ForCausalLM
 from nanovllm.layers.sampler import Sampler
 from nanovllm.utils.context import set_context, get_context, reset_context
 from nanovllm.utils.loader import load_model
+from nanovllm.utils.debug import debug_log
 
 
 class ModelRunner:
@@ -121,69 +127,54 @@ class ModelRunner:
                 layer_id += 1
 
     def prepare_block_tables(self, seqs: list[Sequence]):
-        max_len = max(len(seq.block_table) for seq in seqs)
-        block_tables = [seq.block_table + [-1] * (max_len - len(seq.block_table)) for seq in seqs]
+        block_tables = build_block_tables(seqs)
         block_tables = torch.tensor(block_tables, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
         return block_tables
 
     def prepare_prefill(self, seqs: list[Sequence]):
-        input_ids = []
-        positions = []
-        cu_seqlens_q = [0]
-        cu_seqlens_k = [0]
-        max_seqlen_q = 0
-        max_seqlen_k = 0
-        slot_mapping = []
-        block_tables = None
-        for seq in seqs:
-            start = seq.num_cached_tokens
-            seqlen_q = seq.num_scheduled_tokens
-            end = start + seqlen_q
-            seqlen_k = end
-            input_ids.extend(seq[start:end])
-            positions.extend(range(start, end))
-            cu_seqlens_q.append(cu_seqlens_q[-1] + seqlen_q)
-            cu_seqlens_k.append(cu_seqlens_k[-1] + seqlen_k)
-            max_seqlen_q = max(seqlen_q, max_seqlen_q)
-            max_seqlen_k = max(seqlen_k, max_seqlen_k)
-            if not seq.block_table:    # warmup
-                continue
-            start_block = start // self.block_size
-            end_block = (end + self.block_size - 1) // self.block_size
-            for i in range(start_block, end_block):
-                slot_start = seq.block_table[i] * self.block_size
-                if i == start_block:
-                    slot_start += start % self.block_size
-                if i != end_block - 1:
-                    slot_end = seq.block_table[i] * self.block_size + self.block_size
-                else:
-                    slot_end = seq.block_table[i] * self.block_size + end - i * self.block_size
-                slot_mapping.extend(range(slot_start, slot_end))
-        if cu_seqlens_k[-1] > cu_seqlens_q[-1]:    # prefix cache
-            block_tables = self.prepare_block_tables(seqs)
-        input_ids = torch.tensor(input_ids, dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
-        positions = torch.tensor(positions, dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
-        cu_seqlens_q = torch.tensor(cu_seqlens_q, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
-        cu_seqlens_k = torch.tensor(cu_seqlens_k, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
-        slot_mapping = torch.tensor(slot_mapping, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
-        set_context(True, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k, slot_mapping, None, block_tables)
+        meta = build_prefill_metadata(seqs, self.block_size)
+        block_tables = self.prepare_block_tables(seqs) if meta["need_block_tables"] else None
+        input_ids = torch.tensor(meta["input_ids"], dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
+        positions = torch.tensor(meta["positions"], dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
+        cu_seqlens_q = torch.tensor(meta["cu_seqlens_q"], dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
+        cu_seqlens_k = torch.tensor(meta["cu_seqlens_k"], dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
+        slot_mapping = torch.tensor(meta["slot_mapping"], dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
+        debug_log(
+            "runner",
+            "prepare_prefill",
+            n_seqs=len(seqs),
+            n_tokens=len(meta["input_ids"]),
+            max_seqlen_q=meta["max_seqlen_q"],
+            max_seqlen_k=meta["max_seqlen_k"],
+            slot_mapping=meta["slot_mapping"][:16],
+        )
+        set_context(
+            True,
+            cu_seqlens_q,
+            cu_seqlens_k,
+            meta["max_seqlen_q"],
+            meta["max_seqlen_k"],
+            slot_mapping,
+            None,
+            block_tables,
+        )
         return input_ids, positions
 
     def prepare_decode(self, seqs: list[Sequence]):
-        input_ids = []
-        positions = []
-        slot_mapping = []
-        context_lens = []
-        for seq in seqs:
-            input_ids.append(seq.last_token)
-            positions.append(len(seq) - 1)
-            context_lens.append(len(seq))
-            slot_mapping.append(seq.block_table[-1] * self.block_size + seq.last_block_num_tokens  - 1)
-        input_ids = torch.tensor(input_ids, dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
-        positions = torch.tensor(positions, dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
-        slot_mapping = torch.tensor(slot_mapping, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
-        context_lens = torch.tensor(context_lens, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
+        meta = build_decode_metadata(seqs, self.block_size)
+        input_ids = torch.tensor(meta["input_ids"], dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
+        positions = torch.tensor(meta["positions"], dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
+        slot_mapping = torch.tensor(meta["slot_mapping"], dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
+        context_lens = torch.tensor(meta["context_lens"], dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
         block_tables = self.prepare_block_tables(seqs)
+        debug_log(
+            "runner",
+            "prepare_decode",
+            n_seqs=len(seqs),
+            positions=meta["positions"],
+            slot_mapping=meta["slot_mapping"],
+            context_lens=meta["context_lens"],
+        )
         set_context(False, slot_mapping=slot_mapping, context_lens=context_lens, block_tables=block_tables)
         return input_ids, positions
 
@@ -195,11 +186,13 @@ class ModelRunner:
     @torch.inference_mode()
     def run_model(self, input_ids: torch.Tensor, positions: torch.Tensor, is_prefill: bool):
         if is_prefill or self.enforce_eager or input_ids.size(0) > 512:
+            debug_log("runner", "eager_path", is_prefill=is_prefill, bs=input_ids.size(0))
             return self.model.compute_logits(self.model(input_ids, positions))
         else:
             bs = input_ids.size(0)
             context = get_context()
-            graph = self.graphs[next(x for x in self.graph_bs if x >= bs)]
+            graph_bs = next(x for x in self.graph_bs if x >= bs)
+            graph = self.graphs[graph_bs]
             graph_vars = self.graph_vars
             graph_vars["input_ids"][:bs] = input_ids
             graph_vars["positions"][:bs] = positions
@@ -208,6 +201,7 @@ class ModelRunner:
             graph_vars["context_lens"].zero_()
             graph_vars["context_lens"][:bs] = context.context_lens
             graph_vars["block_tables"][:bs, :context.block_tables.size(1)] = context.block_tables
+            debug_log("runner", "cudagraph_replay", bs=bs, graph_bs=graph_bs)
             graph.replay()
             return self.model.compute_logits(graph_vars["outputs"][:bs])
 
@@ -216,6 +210,7 @@ class ModelRunner:
         temperatures = self.prepare_sample(seqs) if self.rank == 0 else None
         logits = self.run_model(input_ids, positions, is_prefill)
         token_ids = self.sampler(logits, temperatures).tolist() if self.rank == 0 else None
+        debug_log("sampling", "sampled_tokens", token_ids=token_ids)
         reset_context()
         return token_ids
 

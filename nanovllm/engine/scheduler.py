@@ -3,6 +3,7 @@ from collections import deque
 from nanovllm.config import Config
 from nanovllm.engine.sequence import Sequence, SequenceStatus
 from nanovllm.engine.block_manager import BlockManager
+from nanovllm.utils.debug import debug_log
 
 
 class Scheduler:
@@ -21,6 +22,7 @@ class Scheduler:
 
     def add(self, seq: Sequence):
         self.waiting.append(seq)
+        debug_log("scheduler", "add", seq_id=seq.seq_id, num_tokens=seq.num_tokens)
 
     def schedule(self) -> tuple[list[Sequence], bool]:
         scheduled_seqs = []
@@ -52,6 +54,14 @@ class Scheduler:
             scheduled_seqs.append(seq)
 
         if scheduled_seqs:
+            debug_log(
+                "scheduler",
+                "prefill",
+                seq_ids=[s.seq_id for s in scheduled_seqs],
+                num_batched_tokens=num_batched_tokens,
+                waiting=len(self.waiting),
+                running=len(self.running),
+            )
             return scheduled_seqs, True
 
         # decode
@@ -70,9 +80,17 @@ class Scheduler:
                 scheduled_seqs.append(seq)
         assert scheduled_seqs
         self.running.extendleft(reversed(scheduled_seqs))
+        debug_log(
+            "scheduler",
+            "decode",
+            seq_ids=[s.seq_id for s in scheduled_seqs],
+            waiting=len(self.waiting),
+            running=len(self.running),
+        )
         return scheduled_seqs, False
 
     def preempt(self, seq: Sequence):
+        debug_log("scheduler", "preempt", seq_id=seq.seq_id)
         seq.status = SequenceStatus.WAITING
         seq.is_prefill = True
         self.block_manager.deallocate(seq)
@@ -88,5 +106,6 @@ class Scheduler:
             seq.append_token(token_id)
             if (not seq.ignore_eos and token_id == self.eos) or seq.num_completion_tokens == seq.max_tokens:
                 seq.status = SequenceStatus.FINISHED
+                debug_log("scheduler", "finished", seq_id=seq.seq_id, token_id=token_id)
                 self.block_manager.deallocate(seq)
                 self.running.remove(seq)

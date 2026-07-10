@@ -10,6 +10,7 @@ from nanovllm.sampling_params import SamplingParams
 from nanovllm.engine.sequence import Sequence
 from nanovllm.engine.scheduler import Scheduler
 from nanovllm.engine.model_runner import ModelRunner
+from nanovllm.utils.debug import debug_log
 
 
 class LLMEngine:
@@ -44,11 +45,19 @@ class LLMEngine:
         if isinstance(prompt, str):
             prompt = self.tokenizer.encode(prompt)
         seq = Sequence(prompt, sampling_params)
+        debug_log("engine", "add_request", seq_id=seq.seq_id, prompt_len=len(prompt))
         self.scheduler.add(seq)
 
     def step(self):
         seqs, is_prefill = self.scheduler.schedule()
         num_tokens = sum(seq.num_scheduled_tokens for seq in seqs) if is_prefill else -len(seqs)
+        debug_log(
+            "engine",
+            "step",
+            is_prefill=is_prefill,
+            seq_ids=[s.seq_id for s in seqs],
+            num_tokens=num_tokens,
+        )
         token_ids = self.model_runner.call("run", seqs, is_prefill)
         self.scheduler.postprocess(seqs, token_ids, is_prefill)
         outputs = [(seq.seq_id, seq.completion_token_ids) for seq in seqs if seq.is_finished]

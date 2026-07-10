@@ -1,33 +1,46 @@
 import torch
 from torch import nn
-import triton
-import triton.language as tl
 
-from flash_attn import flash_attn_varlen_func, flash_attn_with_kvcache
 from nanovllm.utils.context import get_context
+from nanovllm.utils.debug import debug_log
+
+try:
+    import triton
+    import triton.language as tl
+except ImportError:  # CPU-only / course environments
+    triton = None
+    tl = None
+
+try:
+    from flash_attn import flash_attn_varlen_func, flash_attn_with_kvcache
+except ImportError:  # CPU-only / course environments
+    flash_attn_varlen_func = None
+    flash_attn_with_kvcache = None
 
 
-@triton.jit
-def store_kvcache_kernel(
-    key_ptr,
-    key_stride,
-    value_ptr,
-    value_stride,
-    k_cache_ptr,
-    v_cache_ptr,
-    slot_mapping_ptr,
-    D: tl.constexpr,
-):
-    idx = tl.program_id(0)
-    slot = tl.load(slot_mapping_ptr + idx)
-    if slot == -1: return
-    key_offsets = idx * key_stride + tl.arange(0, D)
-    value_offsets = idx * value_stride + tl.arange(0, D)
-    key = tl.load(key_ptr + key_offsets)
-    value = tl.load(value_ptr + value_offsets)
-    cache_offsets = slot * D + tl.arange(0, D)
-    tl.store(k_cache_ptr + cache_offsets, key)
-    tl.store(v_cache_ptr + cache_offsets, value)
+if triton is not None:
+
+    @triton.jit
+    def store_kvcache_kernel(
+        key_ptr,
+        key_stride,
+        value_ptr,
+        value_stride,
+        k_cache_ptr,
+        v_cache_ptr,
+        slot_mapping_ptr,
+        D: tl.constexpr,
+    ):
+        idx = tl.program_id(0)
+        slot = tl.load(slot_mapping_ptr + idx)
+        if slot == -1: return
+        key_offsets = idx * key_stride + tl.arange(0, D)
+        value_offsets = idx * value_stride + tl.arange(0, D)
+        key = tl.load(key_ptr + key_offsets)
+        value = tl.load(value_ptr + value_offsets)
+        cache_offsets = slot * D + tl.arange(0, D)
+        tl.store(k_cache_ptr + cache_offsets, key)
+        tl.store(v_cache_ptr + cache_offsets, value)
 
 
 def store_kvcache(key: torch.Tensor, value: torch.Tensor, k_cache: torch.Tensor, v_cache: torch.Tensor, slot_mapping: torch.Tensor):
@@ -64,12 +77,24 @@ class Attention(nn.Module):
         if context.is_prefill:
             if context.block_tables is not None:    # prefix cache
                 k, v = k_cache, v_cache
+            debug_log(
+                "attention",
+                "prefill",
+                max_seqlen_q=context.max_seqlen_q,
+                max_seqlen_k=context.max_seqlen_k,
+                use_block_table=context.block_tables is not None,
+            )
             o = flash_attn_varlen_func(q, k, v,
                                        max_seqlen_q=context.max_seqlen_q, cu_seqlens_q=context.cu_seqlens_q,
                                        max_seqlen_k=context.max_seqlen_k, cu_seqlens_k=context.cu_seqlens_k,
                                        softmax_scale=self.scale, causal=True, block_table=context.block_tables)
         else:    # decode
+            debug_log(
+                "attention",
+                "decode",
+                context_lens=None if context.context_lens is None else context.context_lens.tolist(),
+            )
             o = flash_attn_with_kvcache(q.unsqueeze(1), k_cache, v_cache,
-                                        cache_seqlens=context.context_lens, block_table=context.block_tables, 
+                                        cache_seqlens=context.context_lens, block_table=context.block_tables,
                                         softmax_scale=self.scale, causal=True)
         return o

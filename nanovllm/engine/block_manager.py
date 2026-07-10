@@ -3,6 +3,7 @@ import xxhash
 import numpy as np
 
 from nanovllm.engine.sequence import Sequence
+from nanovllm.utils.debug import debug_log
 
 
 class Block:
@@ -48,12 +49,14 @@ class BlockManager:
             del self.hash_to_block_id[block.hash]
         block.reset()
         self.used_block_ids.add(block_id)
+        debug_log("kvcache", "allocate_block", block_id=block_id, free=len(self.free_block_ids))
         return block_id
 
     def _deallocate_block(self, block_id: int):
         assert self.blocks[block_id].ref_count == 0
         self.used_block_ids.remove(block_id)
         self.free_block_ids.append(block_id)
+        debug_log("kvcache", "deallocate_block", block_id=block_id, free=len(self.free_block_ids))
 
     def can_allocate(self, seq: Sequence) -> int:
         h = -1
@@ -90,6 +93,13 @@ class BlockManager:
         for i in range(num_cached_blocks, seq.num_blocks):
             seq.block_table.append(self._allocate_block())
         seq.num_cached_tokens = num_cached_blocks * self.block_size
+        debug_log(
+            "kvcache",
+            "allocate_seq",
+            seq_id=seq.seq_id,
+            block_table=list(seq.block_table),
+            num_cached_tokens=seq.num_cached_tokens,
+        )
 
     def deallocate(self, seq: Sequence):
         for block_id in reversed(seq.block_table):
@@ -99,6 +109,7 @@ class BlockManager:
                 self._deallocate_block(block_id)
         seq.num_cached_tokens = 0
         seq.block_table.clear()
+        debug_log("kvcache", "deallocate_seq", seq_id=seq.seq_id)
 
     def can_append(self, seq: Sequence) -> bool:
         return len(self.free_block_ids) >= (len(seq) % self.block_size == 1)
@@ -110,7 +121,8 @@ class BlockManager:
     def hash_blocks(self, seq: Sequence):
         start = seq.num_cached_tokens // self.block_size
         end = (seq.num_cached_tokens + seq.num_scheduled_tokens) // self.block_size
-        if start == end: return
+        if start == end:
+            return
         h = self.blocks[seq.block_table[start - 1]].hash if start > 0 else -1
         for i in range(start, end):
             block = self.blocks[seq.block_table[i]]
@@ -118,3 +130,4 @@ class BlockManager:
             h = self.compute_hash(token_ids, h)
             block.update(h, token_ids)
             self.hash_to_block_id[h] = block.block_id
+        debug_log("kvcache", "hash_blocks", seq_id=seq.seq_id, start=start, end=end)
