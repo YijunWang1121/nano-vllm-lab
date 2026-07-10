@@ -49,8 +49,20 @@ def make_scheduler_config(
 
 
 def make_scheduler(**kwargs) -> Scheduler:
+    """Create a Scheduler.
+
+    By default, inject WorkingBlockManager so scheduler milestones do not
+    depend on the excavated BlockManager (milestone 4).
+    Pass use_real_block_manager=True to exercise the real implementation.
+    """
+    use_real = kwargs.pop("use_real_block_manager", False)
     Sequence.block_size = kwargs.get("block_size", 4)
-    return Scheduler(make_scheduler_config(**kwargs))
+    config = make_scheduler_config(**kwargs)
+    if use_real:
+        return Scheduler(config)
+    from tests.oracles.working_block_manager import WorkingBlockManager
+    bm = WorkingBlockManager(config.num_kvcache_blocks, config.kvcache_block_size)
+    return Scheduler(config, block_manager=bm)
 
 
 def make_block_manager(num_blocks: int = 32, block_size: int = 4) -> BlockManager:

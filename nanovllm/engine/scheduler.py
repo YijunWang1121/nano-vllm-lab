@@ -8,12 +8,14 @@ from nanovllm.utils.debug import debug_log
 
 class Scheduler:
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, block_manager=None):
         self.max_num_seqs = config.max_num_seqs
         self.max_num_batched_tokens = config.max_num_batched_tokens
         self.eos = config.eos
         self.block_size = config.kvcache_block_size
-        self.block_manager = BlockManager(config.num_kvcache_blocks, config.kvcache_block_size)
+        self.block_manager = block_manager or BlockManager(
+            config.num_kvcache_blocks, config.kvcache_block_size
+        )
         self.waiting: deque[Sequence] = deque()
         self.running: deque[Sequence] = deque()
 
@@ -25,10 +27,15 @@ class Scheduler:
         debug_log("scheduler", "add", seq_id=seq.seq_id, num_tokens=seq.num_tokens)
 
     def schedule(self) -> tuple[list[Sequence], bool]:
+        scheduled_seqs, _ = self._schedule_prefill()
+        if scheduled_seqs:
+            return scheduled_seqs, True
+        return self._schedule_decode()
+
+    def _schedule_prefill(self) -> tuple[list[Sequence], bool]:
         scheduled_seqs = []
         num_batched_tokens = 0
 
-        # prefill
         while self.waiting and len(scheduled_seqs) < self.max_num_seqs:
             seq = self.waiting[0]
             remaining = self.max_num_batched_tokens - num_batched_tokens
@@ -62,9 +69,10 @@ class Scheduler:
                 waiting=len(self.waiting),
                 running=len(self.running),
             )
-            return scheduled_seqs, True
+        return scheduled_seqs, bool(scheduled_seqs)
 
-        # decode
+    def _schedule_decode(self) -> tuple[list[Sequence], bool]:
+        scheduled_seqs = []
         while self.running and len(scheduled_seqs) < self.max_num_seqs:
             seq = self.running.popleft()
             while not self.block_manager.can_append(seq):
