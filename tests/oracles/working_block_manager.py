@@ -1,0 +1,54 @@
+"""Working block manager for early scheduler milestones.
+
+This oracle intentionally omits prefix caching. Do not copy it into
+nanovllm/engine/block_manager.py — implement the real manager yourself
+in milestone 4 (including prefix caching).
+"""
+
+from __future__ import annotations
+
+from collections import deque
+
+from nanovllm.engine.sequence import Sequence
+
+
+class WorkingBlockManager:
+    """Simple free-list allocator sufficient for scheduler tests."""
+
+    def __init__(self, num_blocks: int, block_size: int):
+        self.block_size = block_size
+        self.free_block_ids: deque[int] = deque(range(num_blocks))
+        self.used_block_ids: set[int] = set()
+
+    def can_allocate(self, seq: Sequence) -> int:
+        if len(self.free_block_ids) < seq.num_blocks:
+            return -1
+        return 0  # no prefix cache in the stub
+
+    def allocate(self, seq: Sequence, num_cached_blocks: int):
+        assert not seq.block_table
+        assert num_cached_blocks == 0
+        for _ in range(seq.num_blocks):
+            block_id = self.free_block_ids.popleft()
+            self.used_block_ids.add(block_id)
+            seq.block_table.append(block_id)
+        seq.num_cached_tokens = 0
+
+    def deallocate(self, seq: Sequence):
+        for block_id in reversed(seq.block_table):
+            self.used_block_ids.discard(block_id)
+            self.free_block_ids.append(block_id)
+        seq.num_cached_tokens = 0
+        seq.block_table.clear()
+
+    def can_append(self, seq: Sequence) -> bool:
+        return len(self.free_block_ids) >= (len(seq) % self.block_size == 1)
+
+    def may_append(self, seq: Sequence):
+        if len(seq) % self.block_size == 1:
+            block_id = self.free_block_ids.popleft()
+            self.used_block_ids.add(block_id)
+            seq.block_table.append(block_id)
+
+    def hash_blocks(self, seq: Sequence):
+        return  # stub: no prefix caching
