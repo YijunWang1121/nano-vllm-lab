@@ -4,6 +4,7 @@ import numpy as np
 
 from nanovllm.engine.sequence import Sequence
 from nanovllm.utils.debug import debug_log
+from nanovllm.course.exceptions import CourseNotImplementedError
 
 
 class Block:
@@ -42,92 +43,133 @@ class BlockManager:
         return h.intdigest()
 
     def _allocate_block(self) -> int:
-        block_id = self.free_block_ids.popleft()
-        block = self.blocks[block_id]
-        assert block.ref_count == 0
-        if block.hash != -1 and self.hash_to_block_id.get(block.hash) == block_id:
-            del self.hash_to_block_id[block.hash]
-        block.reset()
-        self.used_block_ids.add(block_id)
-        debug_log("kvcache", "allocate_block", block_id=block_id, free=len(self.free_block_ids))
-        return block_id
+        # TODO-L2-KVCACHE-01: Allocate one physical block from the free list.
+        #
+        # Required behavior:
+        # 1. Pop free_block_ids
+        # 2. Assert ref_count == 0
+        # 3. If block still mapped in hash_to_block_id, delete stale mapping
+        # 4. block.reset()  # sets ref_count=1, clears hash/token_ids
+        # 5. used_block_ids.add(block_id)
+        # 6. Return block_id
+        #
+        # Read: docs/tutorial/05_kv_cache_blocks.md
+        # Tests: pytest tests/milestones/test_04_kv_cache.py
+        raise CourseNotImplementedError(
+            "TODO-L2-KVCACHE-01",
+            subsystem="kvcache",
+            tutorial_path="docs/tutorial/05_kv_cache_blocks.md",
+            milestone_test="pytest tests/milestones/test_04_kv_cache.py",
+            hint="Pop from free_block_ids, reset the Block, mark used.",
+        )
 
     def _deallocate_block(self, block_id: int):
-        assert self.blocks[block_id].ref_count == 0
-        self.used_block_ids.remove(block_id)
-        self.free_block_ids.append(block_id)
-        debug_log("kvcache", "deallocate_block", block_id=block_id, free=len(self.free_block_ids))
+        # TODO-L2-KVCACHE-01 (continued): Return a physical block to the free list.
+        #
+        # Assert ref_count == 0; remove from used; append to free.
+        raise CourseNotImplementedError(
+            "TODO-L2-KVCACHE-01",
+            subsystem="kvcache",
+            tutorial_path="docs/tutorial/05_kv_cache_blocks.md",
+            milestone_test="pytest tests/milestones/test_04_kv_cache.py",
+            hint="Only free when ref_count hits zero.",
+        )
 
     def can_allocate(self, seq: Sequence) -> int:
-        h = -1
-        num_cached_blocks = 0
-        num_new_blocks = seq.num_blocks
-        for i in range(seq.num_blocks - 1):
-            token_ids = seq.block(i)
-            h = self.compute_hash(token_ids, h)
-            block_id = self.hash_to_block_id.get(h, -1)
-            if block_id == -1 or self.blocks[block_id].token_ids != token_ids:
-                break
-            num_cached_blocks += 1
-            if block_id in self.used_block_ids:
-                num_new_blocks -= 1
-        if len(self.free_block_ids) < num_new_blocks:
-            return -1
-        return num_cached_blocks
+        # TODO-L3-KVCACHE-02: Check capacity and count prefix-cache hits.
+        #
+        # Returns:
+        # -1 if not enough free blocks for the uncached portion
+        # otherwise num_cached_blocks (full blocks matched via hash chain)
+        #
+        # Algorithm sketch:
+        # - h=-1; num_cached_blocks=0; num_new_blocks=seq.num_blocks
+        # - For i in range(seq.num_blocks - 1):  # only full blocks
+        #     hash block tokens with prefix h; look up hash_to_block_id
+        #     miss or token mismatch -> break
+        #     hit: num_cached_blocks += 1; if block already used: num_new_blocks -= 1
+        # - If len(free_block_ids) < num_new_blocks: return -1
+        # - return num_cached_blocks
+        #
+        # Read: docs/tutorial/05_kv_cache_blocks.md and docs/tutorial/12_prefix_caching.md
+        raise CourseNotImplementedError(
+            "TODO-L3-KVCACHE-02",
+            subsystem="kvcache",
+            tutorial_path="docs/tutorial/05_kv_cache_blocks.md",
+            milestone_test="pytest tests/milestones/test_04_kv_cache.py",
+            hint="Walk full blocks only; shared used blocks reduce num_new_blocks.",
+        )
 
     def allocate(self, seq: Sequence, num_cached_blocks: int):
-        assert not seq.block_table
-        h = -1
-        for i in range(num_cached_blocks):
-            token_ids = seq.block(i)
-            h = self.compute_hash(token_ids, h)
-            block_id = self.hash_to_block_id[h]
-            block = self.blocks[block_id]
-            if block_id in self.used_block_ids:
-                block.ref_count += 1
-            else:
-                block.ref_count = 1
-                self.free_block_ids.remove(block_id)
-                self.used_block_ids.add(block_id)
-            seq.block_table.append(block_id)
-        for i in range(num_cached_blocks, seq.num_blocks):
-            seq.block_table.append(self._allocate_block())
-        seq.num_cached_tokens = num_cached_blocks * self.block_size
-        debug_log(
-            "kvcache",
-            "allocate_seq",
-            seq_id=seq.seq_id,
-            block_table=list(seq.block_table),
-            num_cached_tokens=seq.num_cached_tokens,
+        # TODO-L3-KVCACHE-03: Build seq.block_table from cache hits + new blocks.
+        #
+        # Preconditions: seq.block_table is empty
+        # 1. For i in [0, num_cached_blocks): share hashed block (bump ref_count /
+        #    move from free->used if currently free)
+        # 2. For remaining logical blocks: append _allocate_block()
+        # 3. seq.num_cached_tokens = num_cached_blocks * block_size
+        #
+        # Read: docs/tutorial/05_kv_cache_blocks.md
+        raise CourseNotImplementedError(
+            "TODO-L3-KVCACHE-03",
+            subsystem="kvcache",
+            tutorial_path="docs/tutorial/05_kv_cache_blocks.md",
+            milestone_test="pytest tests/milestones/test_04_kv_cache.py",
+            hint="Reuse hashed blocks first, then allocate fresh physical blocks.",
         )
 
     def deallocate(self, seq: Sequence):
-        for block_id in reversed(seq.block_table):
-            block = self.blocks[block_id]
-            block.ref_count -= 1
-            if block.ref_count == 0:
-                self._deallocate_block(block_id)
-        seq.num_cached_tokens = 0
-        seq.block_table.clear()
-        debug_log("kvcache", "deallocate_seq", seq_id=seq.seq_id)
+        # TODO-L2-KVCACHE-04: Drop refs for all blocks in seq.block_table.
+        #
+        # Walk block_table in reverse; decrement ref_count; free when 0.
+        # Clear num_cached_tokens and block_table.
+        raise CourseNotImplementedError(
+            "TODO-L2-KVCACHE-04",
+            subsystem="kvcache",
+            tutorial_path="docs/tutorial/05_kv_cache_blocks.md",
+            milestone_test="pytest tests/milestones/test_04_kv_cache.py",
+            hint="Reverse order helps keep free-list behavior predictable.",
+        )
 
     def can_append(self, seq: Sequence) -> bool:
-        return len(self.free_block_ids) >= (len(seq) % self.block_size == 1)
+        # TODO-L2-KVCACHE-05: Return whether decode may proceed.
+        #
+        # Need a free block iff len(seq) % block_size == 1
+        # (about to write the first token of a new page).
+        raise CourseNotImplementedError(
+            "TODO-L2-KVCACHE-05",
+            subsystem="kvcache",
+            tutorial_path="docs/tutorial/05_kv_cache_blocks.md",
+            milestone_test="pytest tests/milestones/test_04_kv_cache.py",
+            hint="len(free) >= (len(seq) % block_size == 1)",
+        )
 
     def may_append(self, seq: Sequence):
-        if len(seq) % self.block_size == 1:
-            seq.block_table.append(self._allocate_block())
+        # TODO-L2-KVCACHE-05 (continued): Append a physical block when needed.
+        #
+        # If len(seq) % block_size == 1: seq.block_table.append(_allocate_block())
+        # Called during decode scheduling BEFORE the new token is appended.
+        raise CourseNotImplementedError(
+            "TODO-L2-KVCACHE-05",
+            subsystem="kvcache",
+            tutorial_path="docs/tutorial/05_kv_cache_blocks.md",
+            milestone_test="pytest tests/milestones/test_04_kv_cache.py",
+            hint="Allocate the next page when the next token starts a new block.",
+        )
 
     def hash_blocks(self, seq: Sequence):
-        start = seq.num_cached_tokens // self.block_size
-        end = (seq.num_cached_tokens + seq.num_scheduled_tokens) // self.block_size
-        if start == end:
-            return
-        h = self.blocks[seq.block_table[start - 1]].hash if start > 0 else -1
-        for i in range(start, end):
-            block = self.blocks[seq.block_table[i]]
-            token_ids = seq.block(i)
-            h = self.compute_hash(token_ids, h)
-            block.update(h, token_ids)
-            self.hash_to_block_id[h] = block.block_id
-        debug_log("kvcache", "hash_blocks", seq_id=seq.seq_id, start=start, end=end)
+        # TODO-L3-KVCACHE-06: Hash newly completed full blocks for prefix cache.
+        #
+        # start = num_cached_tokens // block_size
+        # end = (num_cached_tokens + num_scheduled_tokens) // block_size
+        # if start == end: return
+        # Chain hashes across blocks; update Block and hash_to_block_id.
+        #
+        # Read: docs/tutorial/12_prefix_caching.md
+        raise CourseNotImplementedError(
+            "TODO-L3-KVCACHE-06",
+            subsystem="kvcache",
+            tutorial_path="docs/tutorial/12_prefix_caching.md",
+            milestone_test="pytest tests/milestones/test_04_kv_cache.py",
+            hint="Only full blocks become prefix-cache keys.",
+        )
