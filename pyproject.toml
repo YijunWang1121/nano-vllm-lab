@@ -25,3 +25,14 @@ Homepage="https://github.com/GeeeekExplorer/nano-vllm"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["nanovllm*"]
+
+[tool.ruff]
+line-length = 160
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = ["E701"]
+
+[tool.ruff.lint.per-file-ignores]
+"nanovllm/__init__.py" = ["F401"]
