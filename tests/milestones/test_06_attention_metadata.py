@@ -43,13 +43,14 @@ def test_attention_path_selection_contract_from_metadata():
 
 
 def test_attention_forward_todo_or_runs():
-    """Reference: needs flash-attn. Student: raises CourseNotImplementedError."""
+    """Student: CourseNotImplementedError. Reference: real flash-attn prefill on CUDA."""
     try:
         from nanovllm.layers.attention import Attention
     except ImportError:
         pytest.skip("flash-attn/triton not installed")
 
     attn = Attention(num_heads=2, head_dim=4, scale=0.5, num_kv_heads=2)
+    # Minimal prefill: 1 seq, 1 token. Empty k/v_cache → no store_kvcache; uses q,k,v directly.
     q = k = v = torch.zeros(1, 2, 4)
     reset_context()
     set_context(True, max_seqlen_q=1, max_seqlen_k=1)
@@ -60,6 +61,31 @@ def test_attention_forward_todo_or_runs():
         assert "docs/tutorial/07_attention_metadata.md" in str(e)
         return
     except Exception:
-        # Reference path may fail on CPU tensors even with flash-attn installed.
-        pytest.skip("Attention kernels unavailable on this platform")
+        # Expected on CPU / missing cu_seqlens — fall through to CUDA path below.
+        pass
+    else:
+        assert out is not None
+        return
+
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA required to exercise flash-attn Attention.forward")
+
+    device = torch.device("cuda")
+    attn = Attention(num_heads=2, head_dim=4, scale=0.5, num_kv_heads=2).to(device)
+    # flash_attn_varlen expects [total_tokens, num_heads, head_dim] + int32 cu_seqlens
+    q = torch.randn(1, 2, 4, device=device, dtype=torch.float16)
+    k = torch.randn(1, 2, 4, device=device, dtype=torch.float16)
+    v = torch.randn(1, 2, 4, device=device, dtype=torch.float16)
+    cu = torch.tensor([0, 1], dtype=torch.int32, device=device)
+    reset_context()
+    set_context(
+        True,
+        cu_seqlens_q=cu,
+        cu_seqlens_k=cu,
+        max_seqlen_q=1,
+        max_seqlen_k=1,
+    )
+    out = attn(q, k, v)
     assert out is not None
+    assert out.shape == q.shape
+    reset_context()
