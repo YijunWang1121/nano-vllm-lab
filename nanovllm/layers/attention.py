@@ -242,26 +242,27 @@ class Attention(nn.Module):
             )
             if backend == "flash":
                 flash_attn_varlen_func, _ = _flash_ops()
-                # vllm_flash_attn requires seqused_k whenever block_table is set (prefix-cache prefill).
-                seqused_k = None
-                if context.block_tables is not None and context.cu_seqlens_k is not None:
-                    seqused_k = context.cu_seqlens_k[1:] - context.cu_seqlens_k[:-1]
+                # vllm_flash_attn paged prefill: block_table requires seqused_k and
+                # forbids passing cu_seqlens_k at the same time.
+                # Dense prefill (no block_table): use cu_seqlens_k as usual.
                 fa_kwargs = dict(
                     max_seqlen_q=context.max_seqlen_q,
                     cu_seqlens_q=context.cu_seqlens_q,
                     max_seqlen_k=context.max_seqlen_k,
-                    cu_seqlens_k=context.cu_seqlens_k,
                     softmax_scale=self.scale,
                     causal=True,
                     block_table=context.block_tables,
                 )
-                if seqused_k is not None:
-                    fa_kwargs["seqused_k"] = seqused_k
+                if context.block_tables is not None and context.cu_seqlens_k is not None:
+                    fa_kwargs["seqused_k"] = context.cu_seqlens_k[1:] - context.cu_seqlens_k[:-1]
+                else:
+                    fa_kwargs["cu_seqlens_k"] = context.cu_seqlens_k
                 try:
                     o = flash_attn_varlen_func(q, k, v, **fa_kwargs)
                 except TypeError:
-                    # Older pip flash-attn may not accept seqused_k.
+                    # pip flash-attn: may want cu_seqlens_k even with block_table.
                     fa_kwargs.pop("seqused_k", None)
+                    fa_kwargs["cu_seqlens_k"] = context.cu_seqlens_k
                     o = flash_attn_varlen_func(q, k, v, **fa_kwargs)
             elif context.block_tables is not None:
                 o = _sdpa_prefill_paged(
