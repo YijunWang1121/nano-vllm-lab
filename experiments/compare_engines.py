@@ -180,13 +180,17 @@ MAIN_WORKER = LAB_WORKER  # same API; only PYTHONPATH differs
 
 
 VLLM_WORKER = r"""
-import json, sys, time, gc
+import json, sys, time, gc, os
+# Prefer V0 engine on mixed envs; V1 often pulls leftover flashinfer/torch_c_dlpack from newer vLLM.
+os.environ.setdefault("VLLM_USE_V1", "0")
 payload_path = sys.argv[1]
 with open(payload_path) as f:
     p = json.load(f)
+print("loading vLLM ...", flush=True)
 from vllm import LLM, SamplingParams
 import vllm
 print("PACKAGE", vllm.__file__, flush=True)
+print("vllm", getattr(vllm, "__version__", "?"), "VLLM_USE_V1=", os.environ.get("VLLM_USE_V1"), flush=True)
 sps = [SamplingParams(temperature=0.6, ignore_eos=True, max_tokens=n) for n in p["max_tokens"]]
 reqs = [{"prompt_token_ids": x} for x in p["prompts"]]
 llm = LLM(
@@ -197,9 +201,12 @@ llm = LLM(
     tensor_parallel_size=1,
     disable_log_stats=True,
 )
+print("LLM ready", flush=True)
 try:
     if p["warmup"]:
+        print("warmup ...", flush=True)
         llm.generate(["warmup"], SamplingParams(max_tokens=4, temperature=0.6), use_tqdm=False)
+    print("timed generate ...", flush=True)
     t0 = time.perf_counter()
     llm.generate(reqs, sps, use_tqdm=False)
     elapsed = time.perf_counter() - t0
