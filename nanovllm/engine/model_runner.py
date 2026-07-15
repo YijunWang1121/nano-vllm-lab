@@ -62,9 +62,17 @@ class ModelRunner:
             dist.barrier()
             if self.rank == 0:
                 self.shm.unlink()
-        if not self.enforce_eager:
+        if not self.enforce_eager and hasattr(self, "graphs"):
             del self.graphs, self.graph_pool
+        if hasattr(self, "kv_cache"):
+            del self.kv_cache
+        if hasattr(self, "model"):
+            del self.model
+        if hasattr(self, "sampler"):
+            del self.sampler
+        torch.cuda.empty_cache()
         torch.cuda.synchronize()
+        torch.cuda.reset_peak_memory_stats()
         if dist.is_initialized():
             dist.destroy_process_group()
 

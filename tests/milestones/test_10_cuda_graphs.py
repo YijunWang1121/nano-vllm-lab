@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import os
 
 import pytest
@@ -24,6 +25,7 @@ def model_path(require_cuda):
 
 def test_cudagraph_generation(model_path):
     from nanovllm import LLM, SamplingParams
+    import torch
 
     llm = LLM(model_path, enforce_eager=False, tensor_parallel_size=1)
     try:
@@ -34,3 +36,7 @@ def test_cudagraph_generation(model_path):
         assert len(outs[0]["token_ids"]) <= 4
     finally:
         llm.exit()
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.reset_peak_memory_stats()
