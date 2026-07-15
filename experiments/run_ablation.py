@@ -381,10 +381,15 @@ def run_one(model: str, cfg: RunConfig, workload: dict, args: argparse.Namespace
 def print_table(rows: list[dict]) -> None:
     if not rows:
         return
+    # Prefer a row named baseline; otherwise use the first successful row as reference.
     baseline = next((r for r in rows if r["name"] == "baseline" and not r.get("error")), None)
+    if baseline is None:
+        baseline = next((r for r in rows if not r.get("error")), None)
     base_tps = (baseline["tok_per_s"] if baseline else 0.0) or 1.0
+    ref_name = baseline["name"] if baseline else "?"
     print("\n======== ablation comparison ========")
-    print(f"{'name':22} {'tok/s':>10} {'sec':>8} {'vs_base':>8}")
+    print(f"(relative to {ref_name})")
+    print(f"{'name':22} {'tok/s':>10} {'sec':>8} {'vs_ref':>8}")
     for r in rows:
         if r.get("error"):
             print(f"{r['name']:22} {'FAIL':>10} {'-':>8} {'-':>8}  ({r['error'][:60]})")
