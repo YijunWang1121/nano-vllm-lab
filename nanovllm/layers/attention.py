@@ -5,7 +5,7 @@ import triton.language as tl
 
 from flash_attn import flash_attn_varlen_func, flash_attn_with_kvcache
 from nanovllm.utils.context import get_context
-from nanovllm.utils.debug import debug_log
+from nanovllm.utils.debug import debug_enabled, debug_log
 
 
 @triton.jit
@@ -77,11 +77,15 @@ class Attention(nn.Module):
                                        max_seqlen_k=context.max_seqlen_k, cu_seqlens_k=context.cu_seqlens_k,
                                        softmax_scale=self.scale, causal=True, block_table=context.block_tables)
         else:    # decode
-            debug_log(
-                "attention",
-                "decode",
-                context_lens=None if context.context_lens is None else context.context_lens.tolist(),
-            )
+            # Never call .tolist() on CUDA tensors here: argument evaluation
+            # happens even when debug is off, and CUDA graph capture forbids it.
+            if debug_enabled("attention"):
+                cl = context.context_lens
+                debug_log(
+                    "attention",
+                    "decode",
+                    context_lens_shape=None if cl is None else tuple(cl.shape),
+                )
             o = flash_attn_with_kvcache(q.unsqueeze(1), k_cache, v_cache,
                                         cache_seqlens=context.context_lens, block_table=context.block_tables,
                                         softmax_scale=self.scale, causal=True)
