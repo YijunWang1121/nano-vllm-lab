@@ -242,10 +242,27 @@ class Attention(nn.Module):
             )
             if backend == "flash":
                 flash_attn_varlen_func, _ = _flash_ops()
-                o = flash_attn_varlen_func(q, k, v,
-                                           max_seqlen_q=context.max_seqlen_q, cu_seqlens_q=context.cu_seqlens_q,
-                                           max_seqlen_k=context.max_seqlen_k, cu_seqlens_k=context.cu_seqlens_k,
-                                           softmax_scale=self.scale, causal=True, block_table=context.block_tables)
+                # vllm_flash_attn requires seqused_k whenever block_table is set (prefix-cache prefill).
+                seqused_k = None
+                if context.block_tables is not None and context.cu_seqlens_k is not None:
+                    seqused_k = context.cu_seqlens_k[1:] - context.cu_seqlens_k[:-1]
+                fa_kwargs = dict(
+                    max_seqlen_q=context.max_seqlen_q,
+                    cu_seqlens_q=context.cu_seqlens_q,
+                    max_seqlen_k=context.max_seqlen_k,
+                    cu_seqlens_k=context.cu_seqlens_k,
+                    softmax_scale=self.scale,
+                    causal=True,
+                    block_table=context.block_tables,
+                )
+                if seqused_k is not None:
+                    fa_kwargs["seqused_k"] = seqused_k
+                try:
+                    o = flash_attn_varlen_func(q, k, v, **fa_kwargs)
+                except TypeError:
+                    # Older pip flash-attn may not accept seqused_k.
+                    fa_kwargs.pop("seqused_k", None)
+                    o = flash_attn_varlen_func(q, k, v, **fa_kwargs)
             elif context.block_tables is not None:
                 o = _sdpa_prefill_paged(
                     q, k_cache, v_cache,
