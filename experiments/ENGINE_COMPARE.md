@@ -5,6 +5,27 @@ Branch: `experiments/engine-compare`
 **Report (results + interpretation):** [`ENGINE_COMPARE_REPORT.md`](./ENGINE_COMPARE_REPORT.md)  
 **Numeric artifacts:** [`results/`](./results/)
 
+## Full-config SLO compare (graphs + prefix)
+
+The earlier `run_engine_compare.sh` / sweep used **eager + prefix off** for a controlled same-kernel study.  
+To compare **full optimizations** with finer metrics (TTFT / TPOT / RPS / batch / KV):
+
+```bash
+bash experiments/run_slo_compare.sh
+# or:
+WORKLOAD=independent bash experiments/run_slo_compare.sh
+WORKLOAD=single_stream NUM_SEQS=16 bash experiments/run_slo_compare.sh
+```
+
+| Knob | Full-config default |
+|------|---------------------|
+| CUDA graphs | ON (`--no-enforce-eager`) |
+| Prefix caching | ON (+ prime shared prefix when `shared_prefix`) |
+| Attention | matched `vllm_flash` / `FLASH_ATTN` |
+| Metrics | TTFT, TPOT, E2E, tok/s, req/s, SLO attainment, batch (lab), KV peak (lab) |
+
+See `experiments/bench_slo_compare.py`.
+
 ## What is being compared
 
 | Engine | Source | Notes |
