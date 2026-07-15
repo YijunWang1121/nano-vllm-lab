@@ -34,7 +34,18 @@ class Scheduler:
         scheduled_seqs, _ = self._schedule_prefill()
         if scheduled_seqs:
             return scheduled_seqs, True
-        return self._schedule_decode()
+        if self.running:
+            return self._schedule_decode()
+        if self.waiting:
+            # Typical cause: prompt longer than max_num_batched_tokens while
+            # enable_chunked_prefill=False (cannot partially schedule).
+            raise RuntimeError(
+                "Waiting sequence(s) cannot be scheduled: prompt longer than "
+                f"max_num_batched_tokens={self.max_num_batched_tokens} while "
+                f"enable_chunked_prefill={self.enable_chunked_prefill}, "
+                "or insufficient KV blocks"
+            )
+        raise RuntimeError("schedule() called with empty waiting/running queues")
 
     def _schedule_prefill(self) -> tuple[list[Sequence], bool]:
         scheduled_seqs = []

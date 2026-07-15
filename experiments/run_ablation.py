@@ -54,6 +54,14 @@ PRESETS: dict[str, RunConfig] = {
     "no_chunked_prefill": RunConfig(name="no_chunked_prefill", enable_chunked_prefill=False),
     "single_seq": RunConfig(name="single_seq", max_num_seqs=1),
     "small_batch": RunConfig(name="small_batch", max_num_seqs=8, max_num_batched_tokens=2048),
+    # Intentionally tiny KV pool to force decode preemption under load.
+    "low_kv": RunConfig(name="low_kv", gpu_memory_utilization=0.35, max_num_seqs=128),
+    "low_kv_no_preempt": RunConfig(
+        name="low_kv_no_preempt",
+        gpu_memory_utilization=0.35,
+        max_num_seqs=128,
+        enable_preemption=False,
+    ),
 }
 
 
@@ -303,19 +311,21 @@ def run_one(model: str, cfg: RunConfig, workload: dict, args: argparse.Namespace
         f"max_num_batched_tokens={cfg.max_num_batched_tokens}",
         f"workload={workload['kind']}",
     )
-    llm = LLM(
-        model,
-        enforce_eager=cfg.enforce_eager,
-        enable_prefix_caching=cfg.enable_prefix_caching,
-        enable_preemption=cfg.enable_preemption,
-        enable_chunked_prefill=cfg.enable_chunked_prefill,
-        max_num_seqs=cfg.max_num_seqs,
-        max_num_batched_tokens=cfg.max_num_batched_tokens,
-        max_model_len=cfg.max_model_len,
-        gpu_memory_utilization=cfg.gpu_memory_utilization,
-        tensor_parallel_size=cfg.tensor_parallel_size,
-    )
+    kv_info: dict = {}
+    llm = None
     try:
+        llm = LLM(
+            model,
+            enforce_eager=cfg.enforce_eager,
+            enable_prefix_caching=cfg.enable_prefix_caching,
+            enable_preemption=cfg.enable_preemption,
+            enable_chunked_prefill=cfg.enable_chunked_prefill,
+            max_num_seqs=cfg.max_num_seqs,
+            max_num_batched_tokens=cfg.max_num_batched_tokens,
+            max_model_len=cfg.max_model_len,
+            gpu_memory_utilization=cfg.gpu_memory_utilization,
+            tensor_parallel_size=cfg.tensor_parallel_size,
+        )
         kv_info = print_kv_capacity(llm)
         if args.warmup:
             llm.generate(["warmup"], SamplingParams(max_tokens=4, temperature=0.6), use_tqdm=False)
@@ -323,7 +333,14 @@ def run_one(model: str, cfg: RunConfig, workload: dict, args: argparse.Namespace
         # Populate hash_to_block_id so the timed batch can hit shared prefix blocks.
         shared = workload.get("shared_prefix")
         if args.prime_prefix and shared is not None and cfg.enable_prefix_caching:
-            llm.generate([shared], SamplingParams(max_tokens=1, temperature=0.6), use_tqdm=False)
+            # Prime must be schedulable even when chunked prefill is off.
+            if (not cfg.enable_chunked_prefill) and len(shared) > cfg.max_num_batched_tokens:
+                print(
+                    f"skip prime: shared_prefix_len={len(shared)} > "
+                    f"max_num_batched_tokens={cfg.max_num_batched_tokens} with chunked_prefill=False"
+                )
+            else:
+                llm.generate([shared], SamplingParams(max_tokens=1, temperature=0.6), use_tqdm=False)
 
         if workload["kind"] == "multi_turn":
             elapsed, total_tokens = run_multi_turn(llm, workload)
@@ -331,8 +348,21 @@ def run_one(model: str, cfg: RunConfig, workload: dict, args: argparse.Namespace
             elapsed, total_tokens = run_timed_generate(
                 llm, workload["prompts"], workload["sampling_params"]
             )
+    except Exception as exc:
+        print(f"FAILED: {type(exc).__name__}: {exc}")
+        return {
+            "name": cfg.name,
+            "seconds": None,
+            "total_tokens": 0,
+            "tok_per_s": 0.0,
+            "config": asdict(cfg),
+            "workload": workload["kind"],
+            "kv_cache": kv_info,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
     finally:
-        _cleanup(llm)
+        if llm is not None:
+            _cleanup(llm)
 
     throughput = total_tokens / elapsed if elapsed > 0 else 0.0
     row = {
@@ -351,11 +381,14 @@ def run_one(model: str, cfg: RunConfig, workload: dict, args: argparse.Namespace
 def print_table(rows: list[dict]) -> None:
     if not rows:
         return
-    baseline = next((r for r in rows if r["name"] == "baseline"), rows[0])
-    base_tps = baseline["tok_per_s"] or 1.0
+    baseline = next((r for r in rows if r["name"] == "baseline" and not r.get("error")), None)
+    base_tps = (baseline["tok_per_s"] if baseline else 0.0) or 1.0
     print("\n======== ablation comparison ========")
     print(f"{'name':22} {'tok/s':>10} {'sec':>8} {'vs_base':>8}")
     for r in rows:
+        if r.get("error"):
+            print(f"{r['name']:22} {'FAIL':>10} {'-':>8} {'-':>8}  ({r['error'][:60]})")
+            continue
         rel = r["tok_per_s"] / base_tps if base_tps else 0.0
         print(f"{r['name']:22} {r['tok_per_s']:10.2f} {r['seconds']:8.2f} {rel:8.2f}x")
 

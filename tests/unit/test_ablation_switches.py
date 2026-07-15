@@ -81,6 +81,8 @@ def test_chunked_prefill_disabled_refuses_partial():
     sched_off.add(long)
     scheduled_off, _ = sched_off._schedule_prefill()
     assert scheduled_off == []
+    with pytest.raises(RuntimeError, match="enable_chunked_prefill=False"):
+        sched_off.schedule()
 
     config_on = make_scheduler_config(
         num_kvcache_blocks=64,
