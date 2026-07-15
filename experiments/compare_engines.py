@@ -71,6 +71,7 @@ def resolve_enforce_eager(args: argparse.Namespace) -> bool:
 
 
 def make_workload(args: argparse.Namespace):
+    """One shared synthetic batch for all engines (same prompt ids + max_tokens)."""
     seed(args.seed)
     prompts = [
         [randint(0, 10000) for _ in range(randint(32, args.max_input_len))]
@@ -78,6 +79,23 @@ def make_workload(args: argparse.Namespace):
     ]
     max_tokens = [randint(16, args.max_output_len) for _ in range(args.num_seqs)]
     return prompts, max_tokens
+
+
+def workload_fingerprint(prompts, max_tokens) -> dict:
+    """Stable summary so logs prove lab/vllm saw the same batch."""
+    import hashlib
+    import struct
+
+    h = hashlib.sha256()
+    for p, n in zip(prompts, max_tokens):
+        h.update(struct.pack("<II", n, len(p)))
+        h.update(struct.pack(f"<{len(p)}I", *p))
+    return {
+        "num_seqs": len(prompts),
+        "prompt_tokens": sum(len(p) for p in prompts),
+        "output_tokens": sum(max_tokens),
+        "sha256": h.hexdigest()[:16],
+    }
 
 
 def _cleanup_cuda():
@@ -396,12 +414,17 @@ def main():
             raise SystemExit(f"unknown engine {e!r}; choose from lab,main,vllm")
 
     enforce_eager = resolve_enforce_eager(args)
+    # Single shared batch: identical prompt_token_ids + max_tokens for every engine.
     prompts, max_tokens = make_workload(args)
+    wl = workload_fingerprint(prompts, max_tokens)
     print(
-        f"workload: num_seqs={args.num_seqs} max_input={args.max_input_len} "
-        f"max_output={args.max_output_len} enforce_eager={enforce_eager} "
-        f"attn={attn} (matched lab↔vLLM) "
-        f"gpu_mem_util={args.gpu_memory_utilization}"
+        f"workload: num_seqs={wl['num_seqs']} prompt_tok={wl['prompt_tokens']} "
+        f"output_tok={wl['output_tokens']} seed={args.seed} sha256={wl['sha256']} "
+        f"(shared by all engines)"
+    )
+    print(
+        f"config: enforce_eager={enforce_eager} attn={attn} (matched lab↔vLLM) "
+        f"gpu_mem_util={args.gpu_memory_utilization} max_model_len={args.max_model_len}"
     )
 
     rows = []
@@ -427,7 +450,15 @@ def main():
     if args.json_out:
         path = os.path.expanduser(args.json_out)
         with open(path, "w", encoding="utf-8") as f:
-            json.dump({"model": model, "results": rows}, f, indent=2)
+            json.dump(
+                {
+                    "model": model,
+                    "workload": {**wl, "seed": args.seed},
+                    "results": rows,
+                },
+                f,
+                indent=2,
+            )
         print(f"wrote {path}")
 
 
