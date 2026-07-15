@@ -26,8 +26,11 @@ def test_cudagraph_generation(model_path):
     from nanovllm import LLM, SamplingParams
 
     llm = LLM(model_path, enforce_eager=False, tensor_parallel_size=1)
-    assert hasattr(llm.model_runner, "graphs")
-    assert llm.model_runner.graphs
-    sp = SamplingParams(temperature=0.8, max_tokens=4)
-    outs = llm.generate(["Hello"], sp, use_tqdm=False)
-    assert len(outs[0]["token_ids"]) <= 4
+    try:
+        assert hasattr(llm.model_runner, "graphs")
+        assert llm.model_runner.graphs
+        sp = SamplingParams(temperature=0.8, max_tokens=4)
+        outs = llm.generate(["Hello"], sp, use_tqdm=False)
+        assert len(outs[0]["token_ids"]) <= 4
+    finally:
+        llm.exit()
