@@ -27,23 +27,17 @@ Default-on behavior should match upstream for a fair bench (`enforce_eager=False
 
 | Mode | Lab | vLLM |
 |------|-----|------|
-| **flash** (default if `flash_attn` imports) | `NANOVLLM_ATTN_BACKEND=flash` | Flash Attention (auto) |
-| **torch** (fallback) | SDPA | `VLLM_ATTENTION_BACKEND=XFORMERS` + `VLLM_USE_V1=0` |
+| **vllm_flash** (default if available) | imports `vllm_flash_attn` (same .so) | `VLLM_ATTENTION_BACKEND=FLASH_ATTN` |
+| **flash** | pip `flash_attn` (different binary) | `FLASH_ATTN` (still vLLM's bundle) |
+| **torch** (fallback) | SDPA | `VLLM_ATTENTION_BACKEND=XFORMERS` |
 
-Install lab `flash-attn` (torch 2.6 / cu124 / py311) from a prebuilt wheel — do **not** compile from source unless you must:
-
-```bash
-pip install --no-cache-dir \
-  https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.7.16/flash_attn-2.8.3+cu124torch2.6-cp311-cp311-linux_x86_64.whl
-```
+vLLM ships its own FlashAttention copy (`vllm_flash_attn`). Pip `flash-attn` is a **different** shared library even when both say "Flash Attention". For same-kernel compare, use `NANOVLLM_ATTN_BACKEND=vllm_flash`.
 
 Both sides use `--enforce-eager` and `enable_prefix_caching=False` for this synthetic workload.
 
-If a previous run forced `NANOVLLM_ATTN_BACKEND=torch`, **unset it** so flash can be used:
-
 ```bash
 unset NANOVLLM_ATTN_BACKEND
-python -c "from flash_attn import flash_attn_varlen_func; print('flash-attn ok')"
+python -c "import vllm.vllm_flash_attn as m; print(m.__file__)"
 ```
 
 ## How to run (GPU)

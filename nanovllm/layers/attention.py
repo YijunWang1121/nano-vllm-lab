@@ -1,3 +1,4 @@
+import importlib
 import os
 
 import torch
@@ -9,13 +10,63 @@ import triton.language as tl
 from nanovllm.utils.context import get_context
 from nanovllm.utils.debug import debug_enabled, debug_log
 
-try:
-    from flash_attn import flash_attn_varlen_func, flash_attn_with_kvcache
-    _FLASH_ATTN_AVAILABLE = True
-except Exception:  # ImportError or ABI mismatch against current torch
-    flash_attn_varlen_func = None
-    flash_attn_with_kvcache = None
-    _FLASH_ATTN_AVAILABLE = False
+# (varlen_func, with_kvcache_func, source_module_name) once resolved.
+_FLASH_IMPL: tuple | None = None
+_FLASH_RESOLVED = False
+
+
+def _try_import_flash(module_name: str):
+    mod = importlib.import_module(module_name)
+    return (
+        getattr(mod, "flash_attn_varlen_func"),
+        getattr(mod, "flash_attn_with_kvcache"),
+        module_name,
+    )
+
+
+def _resolve_flash_impl():
+    """Resolve flash attention implementation.
+
+    - flash / auto: pip `flash_attn`
+    - vllm_flash: vLLM's bundled `vllm_flash_attn` (same .so as vLLM FLASH_ATTN backend)
+    """
+    global _FLASH_IMPL, _FLASH_RESOLVED
+    if _FLASH_RESOLVED:
+        return _FLASH_IMPL
+    _FLASH_RESOLVED = True
+    env = os.environ.get("NANOVLLM_ATTN_BACKEND", "auto").strip().lower()
+    candidates: list[str] = []
+    if env in ("vllm_flash", "vllm-flash", "same"):
+        candidates = ["vllm.vllm_flash_attn", "vllm_flash_attn"]
+    elif env in ("flash", "auto", ""):
+        candidates = ["flash_attn"]
+        if env == "auto":
+            # Prefer pip flash_attn; fall back to vLLM bundle if present.
+            candidates += ["vllm.vllm_flash_attn", "vllm_flash_attn"]
+    else:
+        # torch/sdpa/eager → no flash
+        _FLASH_IMPL = None
+        return None
+    errors = []
+    for name in candidates:
+        try:
+            _FLASH_IMPL = _try_import_flash(name)
+            return _FLASH_IMPL
+        except Exception as exc:  # ImportError / ABI mismatch
+            errors.append(f"{name}: {exc}")
+            continue
+    _FLASH_IMPL = None
+    if env in ("flash", "vllm_flash", "vllm-flash", "same"):
+        raise ImportError(
+            f"NANOVLLM_ATTN_BACKEND={env} but no flash impl importable. Tried: "
+            + "; ".join(errors)
+        )
+    return None
+
+
+def flash_attn_source() -> str | None:
+    impl = _resolve_flash_impl()
+    return None if impl is None else impl[2]
 
 
 def _attn_backend() -> str:
@@ -23,14 +74,16 @@ def _attn_backend() -> str:
     env = os.environ.get("NANOVLLM_ATTN_BACKEND", "auto").strip().lower()
     if env in ("torch", "sdpa", "eager"):
         return "torch"
-    if env == "flash":
-        if not _FLASH_ATTN_AVAILABLE:
-            raise ImportError(
-                "NANOVLLM_ATTN_BACKEND=flash but flash-attn is not importable. "
-                "Install a wheel matching this torch, or use NANOVLLM_ATTN_BACKEND=torch"
-            )
+    if _resolve_flash_impl() is not None:
         return "flash"
-    return "flash" if _FLASH_ATTN_AVAILABLE else "torch"
+    return "torch"
+
+
+def _flash_ops():
+    impl = _resolve_flash_impl()
+    if impl is None:
+        raise ImportError("flash attention ops requested but not available")
+    return impl[0], impl[1]
 
 
 @triton.jit
@@ -188,6 +241,7 @@ class Attention(nn.Module):
                 use_block_table=context.block_tables is not None,
             )
             if backend == "flash":
+                flash_attn_varlen_func, _ = _flash_ops()
                 o = flash_attn_varlen_func(q, k, v,
                                            max_seqlen_q=context.max_seqlen_q, cu_seqlens_q=context.cu_seqlens_q,
                                            max_seqlen_k=context.max_seqlen_k, cu_seqlens_k=context.cu_seqlens_k,
@@ -215,6 +269,7 @@ class Attention(nn.Module):
                     context_lens_shape=None if cl is None else tuple(cl.shape),
                 )
             if backend == "flash":
+                _, flash_attn_with_kvcache = _flash_ops()
                 o = flash_attn_with_kvcache(q.unsqueeze(1), k_cache, v_cache,
                                             cache_seqlens=context.context_lens, block_table=context.block_tables,
                                             softmax_scale=self.scale, causal=True)

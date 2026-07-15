@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """Fair throughput comparison: course lab vs upstream main vs vLLM.
 
-Matched attention + enforce_eager on both sides:
+Matched attention kernel + enforce_eager on both sides:
 
-    # Preferred (flash on lab + vLLM Flash Attention):
+    # Same FlashAttention binary as vLLM (preferred for engine compare):
+    export NANOVLLM_ATTN_BACKEND=vllm_flash   # lab imports vllm_flash_attn
+    # vLLM worker sets VLLM_ATTENTION_BACKEND=FLASH_ATTN
+
+    # pip flash-attn on lab (different .so than vLLM's bundled copy):
     export NANOVLLM_ATTN_BACKEND=flash
-    python experiments/compare_engines.py --engines lab,vllm --enforce-eager --warmup
 
-    # Fallback when flash-attn ABI is broken (lab SDPA + vLLM TORCH_SDPA):
+    # Fallback (not the same kernel): lab SDPA + vLLM XFORMERS
     export NANOVLLM_ATTN_BACKEND=torch
-    python experiments/compare_engines.py --engines lab,vllm --enforce-eager --warmup
 
 SDPA is incompatible with nano-vLLM CUDA graphs → use --enforce-eager with torch/SDPA.
 """
@@ -166,6 +168,11 @@ from nanovllm import LLM, SamplingParams
 import nanovllm
 print("PACKAGE", nanovllm.__file__, flush=True)
 print("attn", os.environ.get("NANOVLLM_ATTN_BACKEND"), "enforce_eager", p["enforce_eager"], flush=True)
+try:
+    from nanovllm.layers.attention import flash_attn_source
+    print("flash_impl", flash_attn_source(), flush=True)
+except Exception as exc:
+    print("flash_impl", None, exc, flush=True)
 print("loading LLM ...", flush=True)
 sps = [SamplingParams(temperature=0.6, ignore_eos=True, max_tokens=n) for n in p["max_tokens"]]
 llm_kwargs = dict(
@@ -218,17 +225,26 @@ with open(payload_path) as f:
 attn = (p.get("attn_backend") or os.environ.get("NANOVLLM_ATTN_BACKEND") or "auto").strip().lower()
 if attn in ("torch", "sdpa", "eager"):
     os.environ["VLLM_ATTENTION_BACKEND"] = "XFORMERS"
-elif attn in ("flash", "auto"):
-    # Leave unset so vLLM picks Flash Attention when available (same class as lab flash-attn).
-    os.environ.pop("VLLM_ATTENTION_BACKEND", None)
+elif attn in ("flash", "auto", "vllm_flash", "vllm-flash", "same"):
+    # Pin FLASH_ATTN so vLLM uses its bundled vllm_flash_attn (same .so lab uses with vllm_flash).
+    os.environ["VLLM_ATTENTION_BACKEND"] = "FLASH_ATTN"
 print("loading vLLM ...", flush=True)
 from vllm import LLM, SamplingParams
 import vllm
 print("PACKAGE", vllm.__file__, flush=True)
+flash_impl = None
+for name in ("vllm.vllm_flash_attn", "vllm_flash_attn"):
+    try:
+        mod = __import__(name, fromlist=["*"])
+        flash_impl = f"{name} @ {getattr(mod, '__file__', '?')}"
+        break
+    except Exception:
+        pass
 print(
     "vllm", getattr(vllm, "__version__", "?"),
     "VLLM_USE_V1=", os.environ.get("VLLM_USE_V1"),
     "VLLM_ATTENTION_BACKEND=", os.environ.get("VLLM_ATTENTION_BACKEND", "<auto>"),
+    "flash_impl", flash_impl,
     flush=True,
 )
 sps = [SamplingParams(temperature=0.6, ignore_eos=True, max_tokens=n) for n in p["max_tokens"]]
@@ -271,16 +287,31 @@ print("RESULT", json.dumps({
 """
 
 
+def _can_import(names: list[str]) -> bool:
+    for name in names:
+        try:
+            __import__(name)
+            return True
+        except Exception:
+            continue
+    return False
+
+
 def resolve_attn_backend() -> str:
-    """Return flash|torch for fair matching. Prefer flash when importable."""
+    """Return vllm_flash|flash|torch. Prefer vLLM's bundled flash for same-kernel compare."""
     env = os.environ.get("NANOVLLM_ATTN_BACKEND", "").strip().lower()
-    if env in ("torch", "sdpa", "eager", "flash"):
-        return "torch" if env != "flash" else "flash"
-    try:
-        from flash_attn import flash_attn_varlen_func  # noqa: F401
-        return "flash"
-    except Exception:
+    if env in ("torch", "sdpa", "eager"):
         return "torch"
+    if env in ("vllm_flash", "vllm-flash", "same"):
+        return "vllm_flash"
+    if env == "flash":
+        return "flash"
+    # auto: same kernel as vLLM when possible
+    if _can_import(["vllm.vllm_flash_attn", "vllm_flash_attn"]):
+        return "vllm_flash"
+    if _can_import(["flash_attn"]):
+        return "flash"
+    return "torch"
 
 
 def _payload(model, prompts, max_tokens, args, enforce_eager: bool, attn_backend: str) -> dict:
@@ -309,7 +340,11 @@ def run_lab(model: str, prompts, max_tokens, args: argparse.Namespace) -> dict:
     )
     elapsed = result["seconds"]
     total = result["total_tokens"]
-    kind = "flash-attn" if attn == "flash" else "SDPA/torch"
+    kind = {
+        "vllm_flash": "vllm_flash_attn (same .so as vLLM)",
+        "flash": "pip flash-attn",
+        "torch": "SDPA/torch",
+    }.get(attn, attn)
     return {
         "engine": "lab",
         "label": f"lab {kind} (enforce_eager={enforce_eager})",
@@ -351,7 +386,7 @@ def run_main_subprocess(model: str, prompts, max_tokens, args: argparse.Namespac
 def run_vllm(model: str, prompts, max_tokens, args: argparse.Namespace) -> dict:
     enforce_eager = resolve_enforce_eager(args)
     attn = resolve_attn_backend()
-    vllm_attn = "XFORMERS" if attn == "torch" else "FLASH_ATTN(auto)"
+    vllm_attn = "XFORMERS" if attn == "torch" else "FLASH_ATTN"
     print(
         f"  attn={attn}→{vllm_attn} enforce_eager={enforce_eager} "
         f"gpu_memory_utilization={args.gpu_memory_utilization} prefix_caching=False"

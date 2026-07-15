@@ -40,9 +40,13 @@ OUT_DIR="${COMPARE_OUT_DIR:-$HOME/engine_compare_results}"
 mkdir -p "$OUT_DIR"
 TS="$(date +%Y%m%d_%H%M%S)"
 
-# Pick a fair attention mode: flash if importable, else torch/SDPA on both engines.
+# Prefer vLLM's bundled flash so lab and vLLM share the same attention .so.
+# Fallback: pip flash_attn, then torch/SDPA (+ vLLM XFORMERS).
 if [[ -z "${NANOVLLM_ATTN_BACKEND:-}" ]]; then
-  if python -c "from flash_attn import flash_attn_varlen_func" 2>/dev/null; then
+  if python -c "import vllm.vllm_flash_attn" 2>/dev/null \
+     || python -c "import vllm_flash_attn" 2>/dev/null; then
+    export NANOVLLM_ATTN_BACKEND=vllm_flash
+  elif python -c "from flash_attn import flash_attn_varlen_func" 2>/dev/null; then
     export NANOVLLM_ATTN_BACKEND=flash
   else
     export NANOVLLM_ATTN_BACKEND=torch
@@ -51,7 +55,7 @@ fi
 
 echo "lab root: $ROOT"
 echo "model:    $MODEL"
-echo "attn:     NANOVLLM_ATTN_BACKEND=$NANOVLLM_ATTN_BACKEND (matched on lab + vLLM)"
+echo "attn:     NANOVLLM_ATTN_BACKEND=$NANOVLLM_ATTN_BACKEND (matched kernel class on lab + vLLM)"
 
 ENGINES="lab"
 if python -c "import vllm" 2>/dev/null; then
