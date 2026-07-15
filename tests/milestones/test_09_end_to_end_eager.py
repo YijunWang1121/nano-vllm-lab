@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import os
 
 import pytest
@@ -22,6 +23,15 @@ def model_path(require_cuda):
     return path
 
 
+def _cleanup(llm):
+    llm.exit()
+    gc.collect()
+    import torch
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.reset_peak_memory_stats()
+
+
 def test_greedyish_short_generation(model_path):
     from nanovllm import LLM, SamplingParams
 
@@ -32,7 +42,7 @@ def test_greedyish_short_generation(model_path):
         assert "text" in outs[0]
         assert len(outs[0]["token_ids"]) <= 8
     finally:
-        llm.exit()
+        _cleanup(llm)
 
 
 def test_two_request_batch(model_path):
@@ -44,4 +54,4 @@ def test_two_request_batch(model_path):
         outs = llm.generate(["Hi", "Hey"], sp, use_tqdm=False)
         assert len(outs) == 2
     finally:
-        llm.exit()
+        _cleanup(llm)
