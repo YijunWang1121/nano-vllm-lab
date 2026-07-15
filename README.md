@@ -84,7 +84,13 @@ python experiments/run_ablation.py --preset baseline,no_prefix \
 python experiments/run_ablation.py --preset baseline,no_prefix \
   --workload multi_turn --num-sessions 16 --num-turns 4 \
   --shared-prefix-len 512 --warmup
+
+# Lab vs git main vs vLLM (branch experiments/engine-compare)
+bash experiments/run_engine_compare.sh
 ```
+
+See [`experiments/ENGINE_COMPARE.md`](experiments/ENGINE_COMPARE.md).
+
 
 ## Benchmark
 
