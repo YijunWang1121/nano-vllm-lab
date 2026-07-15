@@ -13,8 +13,12 @@ class Scheduler:
         self.max_num_batched_tokens = config.max_num_batched_tokens
         self.eos = config.eos
         self.block_size = config.kvcache_block_size
+        self.enable_preemption = config.enable_preemption
+        self.enable_chunked_prefill = config.enable_chunked_prefill
         self.block_manager = block_manager or BlockManager(
-            config.num_kvcache_blocks, config.kvcache_block_size
+            config.num_kvcache_blocks,
+            config.kvcache_block_size,
+            enable_prefix_caching=config.enable_prefix_caching,
         )
         self.waiting: deque[Sequence] = deque()
         self.running: deque[Sequence] = deque()
@@ -48,8 +52,10 @@ class Scheduler:
                 num_tokens = seq.num_tokens - num_cached_blocks * self.block_size
             else:
                 num_tokens = seq.num_tokens - seq.num_cached_tokens
-            if remaining < num_tokens and scheduled_seqs:  # only allow chunked prefill for the first seq
-                break
+            if remaining < num_tokens:
+                # Chunked prefill: only the first seq in a batch may be partially scheduled.
+                if not self.enable_chunked_prefill or scheduled_seqs:
+                    break
             if not seq.block_table:
                 self.block_manager.allocate(seq, num_cached_blocks)
             seq.num_scheduled_tokens = min(num_tokens, remaining)
@@ -76,6 +82,11 @@ class Scheduler:
         while self.running and len(scheduled_seqs) < self.max_num_seqs:
             seq = self.running.popleft()
             while not self.block_manager.can_append(seq):
+                if not self.enable_preemption:
+                    raise RuntimeError(
+                        "KV cache exhausted while enable_preemption=False; "
+                        "raise gpu_memory_utilization or reduce concurrent load"
+                    )
                 if self.running:
                     self.preempt(self.running.pop())
                 else:

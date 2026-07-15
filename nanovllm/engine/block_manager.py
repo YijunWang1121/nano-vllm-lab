@@ -26,8 +26,9 @@ class Block:
 
 class BlockManager:
 
-    def __init__(self, num_blocks: int, block_size: int):
+    def __init__(self, num_blocks: int, block_size: int, enable_prefix_caching: bool = True):
         self.block_size = block_size
+        self.enable_prefix_caching = enable_prefix_caching
         self.blocks: list[Block] = [Block(i) for i in range(num_blocks)]
         self.hash_to_block_id: dict[int, int] = dict()
         self.free_block_ids: deque[int] = deque(range(num_blocks))
@@ -59,6 +60,10 @@ class BlockManager:
         debug_log("kvcache", "deallocate_block", block_id=block_id, free=len(self.free_block_ids))
 
     def can_allocate(self, seq: Sequence) -> int:
+        if not self.enable_prefix_caching:
+            if len(self.free_block_ids) < seq.num_blocks:
+                return -1
+            return 0
         h = -1
         num_cached_blocks = 0
         num_new_blocks = seq.num_blocks
@@ -119,6 +124,8 @@ class BlockManager:
             seq.block_table.append(self._allocate_block())
 
     def hash_blocks(self, seq: Sequence):
+        if not self.enable_prefix_caching:
+            return
         start = seq.num_cached_tokens // self.block_size
         end = (seq.num_cached_tokens + seq.num_scheduled_tokens) // self.block_size
         if start == end:

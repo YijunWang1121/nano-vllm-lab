@@ -58,6 +58,22 @@ outputs = llm.generate(prompts, sampling_params)
 outputs[0]["text"]
 ```
 
+## Ablation / A-B experiments
+
+Config switches (defaults match upstream behavior):
+
+- `enforce_eager` — disable CUDA graphs
+- `enable_prefix_caching` — disable automatic prefix KV reuse
+- `enable_preemption` — disable decode preemption under KV pressure
+- `enable_chunked_prefill` — disable partial-prefill scheduling
+- also: `max_num_seqs`, `max_num_batched_tokens`, `gpu_memory_utilization`, `tensor_parallel_size`
+
+```bash
+export PYTHONPATH=.
+python experiments/run_ablation.py --preset all --warmup
+python experiments/run_ablation.py --preset baseline,no_cudagraph,no_prefix --num-seqs 64
+```
+
 ## Benchmark
 
 See `bench.py` for benchmark.

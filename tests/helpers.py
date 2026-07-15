@@ -38,6 +38,9 @@ def make_scheduler_config(
     eos: int = 2,
     block_size: int = 4,
     num_kvcache_blocks: int = 32,
+    enable_prefix_caching: bool = True,
+    enable_preemption: bool = True,
+    enable_chunked_prefill: bool = True,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         max_num_seqs=max_num_seqs,
@@ -45,6 +48,9 @@ def make_scheduler_config(
         eos=eos,
         kvcache_block_size=block_size,
         num_kvcache_blocks=num_kvcache_blocks,
+        enable_prefix_caching=enable_prefix_caching,
+        enable_preemption=enable_preemption,
+        enable_chunked_prefill=enable_chunked_prefill,
     )
 
 
