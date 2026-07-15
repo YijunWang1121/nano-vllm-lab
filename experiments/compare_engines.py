@@ -195,10 +195,11 @@ os.environ.setdefault("VLLM_USE_V1", "0")
 payload_path = sys.argv[1]
 with open(payload_path) as f:
     p = json.load(f)
-# Match lab attention class when running the fair no-flash path.
+# Match lab attention class when possible.
+# vLLM CUDA+V0 rejects TORCH_SDPA; XFORMERS is the supported non-flash GPU backend.
 attn = (p.get("attn_backend") or os.environ.get("NANOVLLM_ATTN_BACKEND") or "auto").strip().lower()
 if attn in ("torch", "sdpa", "eager"):
-    os.environ["VLLM_ATTENTION_BACKEND"] = "TORCH_SDPA"
+    os.environ["VLLM_ATTENTION_BACKEND"] = "XFORMERS"
 elif attn in ("flash", "auto"):
     # Leave unset so vLLM picks Flash Attention when available (same class as lab flash-attn).
     os.environ.pop("VLLM_ATTENTION_BACKEND", None)
@@ -332,7 +333,7 @@ def run_main_subprocess(model: str, prompts, max_tokens, args: argparse.Namespac
 def run_vllm(model: str, prompts, max_tokens, args: argparse.Namespace) -> dict:
     enforce_eager = resolve_enforce_eager(args)
     attn = resolve_attn_backend()
-    vllm_attn = "TORCH_SDPA" if attn == "torch" else "FLASH_ATTN(auto)"
+    vllm_attn = "XFORMERS" if attn == "torch" else "FLASH_ATTN(auto)"
     print(
         f"  attn={attn}→{vllm_attn} enforce_eager={enforce_eager} "
         f"gpu_memory_utilization={args.gpu_memory_utilization} prefix_caching=False"

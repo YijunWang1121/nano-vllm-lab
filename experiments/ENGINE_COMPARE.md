@@ -28,7 +28,14 @@ Default-on behavior should match upstream for a fair bench (`enforce_eager=False
 | Mode | Lab | vLLM |
 |------|-----|------|
 | **flash** (default if `flash_attn` imports) | `NANOVLLM_ATTN_BACKEND=flash` | Flash Attention (auto) |
-| **torch** (fallback) | SDPA | `VLLM_ATTENTION_BACKEND=TORCH_SDPA` + `VLLM_USE_V1=0` |
+| **torch** (fallback) | SDPA | `VLLM_ATTENTION_BACKEND=XFORMERS` + `VLLM_USE_V1=0` |
+
+Install lab `flash-attn` (torch 2.6 / cu124 / py311) from a prebuilt wheel — do **not** compile from source unless you must:
+
+```bash
+pip install --no-cache-dir \
+  https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.7.16/flash_attn-2.8.3+cu124torch2.6-cp311-cp311-linux_x86_64.whl
+```
 
 Both sides use `--enforce-eager` and `enable_prefix_caching=False` for this synthetic workload.
 
