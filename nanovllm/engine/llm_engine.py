@@ -33,11 +33,16 @@ class LLMEngine:
         self.tokenizer = AutoTokenizer.from_pretrained(config.model, use_fast=True)
         config.eos = self.tokenizer.eos_token_id
         self.scheduler = Scheduler(config)
+        self._exited = False
         atexit.register(self.exit)
 
     def exit(self):
-        self.model_runner.call("exit")
-        del self.model_runner
+        if getattr(self, "_exited", False):
+            return
+        self._exited = True
+        if hasattr(self, "model_runner"):
+            self.model_runner.call("exit")
+            del self.model_runner
         for p in self.ps:
             p.join()
 

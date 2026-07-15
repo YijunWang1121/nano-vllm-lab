@@ -26,16 +26,22 @@ def test_greedyish_short_generation(model_path):
     from nanovllm import LLM, SamplingParams
 
     llm = LLM(model_path, enforce_eager=True, tensor_parallel_size=1)
-    sp = SamplingParams(temperature=0.01, max_tokens=8)
-    outs = llm.generate(["Hello"], sp, use_tqdm=False)
-    assert "text" in outs[0]
-    assert len(outs[0]["token_ids"]) <= 8
+    try:
+        sp = SamplingParams(temperature=0.01, max_tokens=8)
+        outs = llm.generate(["Hello"], sp, use_tqdm=False)
+        assert "text" in outs[0]
+        assert len(outs[0]["token_ids"]) <= 8
+    finally:
+        llm.exit()
 
 
 def test_two_request_batch(model_path):
     from nanovllm import LLM, SamplingParams
 
     llm = LLM(model_path, enforce_eager=True, tensor_parallel_size=1)
-    sp = SamplingParams(temperature=0.8, max_tokens=4)
-    outs = llm.generate(["Hi", "Hey"], sp, use_tqdm=False)
-    assert len(outs) == 2
+    try:
+        sp = SamplingParams(temperature=0.8, max_tokens=4)
+        outs = llm.generate(["Hi", "Hey"], sp, use_tqdm=False)
+        assert len(outs) == 2
+    finally:
+        llm.exit()
