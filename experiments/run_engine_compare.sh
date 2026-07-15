@@ -10,6 +10,14 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 export PYTHONPATH="${PYTHONPATH:-$ROOT}"
 
+# vLLM wheels often need nvidia/*/lib (e.g. libcudart.so.13) on LD_LIBRARY_PATH.
+_nv_root="${VIRTUAL_ENV:-$HOME/venv-nanovllm}/lib"
+_nv_libs="$(find "${_nv_root}" -type d -path '*/site-packages/nvidia/*/lib' 2>/dev/null | paste -sd: - || true)"
+if [[ -n "${_nv_libs}" ]]; then
+  export LD_LIBRARY_PATH="${_nv_libs}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
+unset _nv_root _nv_libs
+
 MODEL="${NANOVLLM_TEST_MODEL:-$HOME/huggingface/Qwen3-0.6B}"
 MAIN_PATH="${NANOVLLM_MAIN_PATH:-/tmp/nano-vllm-main}"
 OUT_DIR="${COMPARE_OUT_DIR:-$HOME/engine_compare_results}"
@@ -36,6 +44,9 @@ echo "=== package paths (sanity) ==="
 PYTHONPATH="$ROOT" python -c "import nanovllm; print('lab ', nanovllm.__file__)"
 PYTHONPATH="$MAIN_PATH" python -c "import nanovllm; print('main', nanovllm.__file__)"
 
+# Prefer torch SDPA when flash-attn is unavailable (common after vLLM upgrades torch).
+export NANOVLLM_ATTN_BACKEND="${NANOVLLM_ATTN_BACKEND:-auto}"
+
 ENGINES="lab,main"
 if python -c "import vllm" 2>/dev/null; then
   ENGINES="lab,main,vllm"
@@ -43,6 +54,16 @@ if python -c "import vllm" 2>/dev/null; then
 else
   echo "vLLM: not installed (skip). Install with: pip install vllm"
 fi
+
+# Upstream main still hard-depends on flash-attn; skip it if import fails.
+if ! python -c "import flash_attn" 2>/dev/null; then
+  echo "flash-attn: not importable → skip main; use NANOVLLM_ATTN_BACKEND=torch for lab"
+  export NANOVLLM_ATTN_BACKEND=torch
+  ENGINES="${ENGINES//main,/}"
+  ENGINES="${ENGINES//,main/}"
+  ENGINES="${ENGINES//main/lab}"
+fi
+echo "engines: $ENGINES (NANOVLLM_ATTN_BACKEND=$NANOVLLM_ATTN_BACKEND)"
 
 python experiments/compare_engines.py \
   --model "$MODEL" \
