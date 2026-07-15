@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Compare course lab engine vs git main vs vLLM.
+# Compare lab (nano-vLLM) vs vLLM WITHOUT flash-attn.
+# Uses PyTorch SDPA + enforce_eager (CUDA graphs incompatible with SDPA fallback).
 #
 #   cd /nano-vllm-lab
-#   git fetch origin main
 #   bash experiments/run_engine_compare.sh
 set -euo pipefail
 
@@ -10,7 +10,22 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 export PYTHONPATH="${PYTHONPATH:-$ROOT}"
 
-# vLLM wheels often need nvidia/*/lib (e.g. libcudart.so.13) on LD_LIBRARY_PATH.
+# Kill leftover GPU holders from a previous failed run (best effort).
+python - <<'PY' || true
+import gc
+try:
+    import torch
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+        torch.cuda.empty_cache()
+        free, total = torch.cuda.mem_get_info()
+        print(f"cuda free before run: {free/1024**3:.2f}/{total/1024**3:.2f} GiB")
+except Exception as e:
+    print("cuda pre-clean:", e)
+gc.collect()
+PY
+
+# vLLM may need nvidia/*/lib on LD_LIBRARY_PATH (libcudart.so.13).
 _nv_root="${VIRTUAL_ENV:-$HOME/venv-nanovllm}/lib"
 _nv_libs="$(find "${_nv_root}" -type d -path '*/site-packages/nvidia/*/lib' 2>/dev/null | paste -sd: - || true)"
 if [[ -n "${_nv_libs}" ]]; then
@@ -19,60 +34,34 @@ fi
 unset _nv_root _nv_libs
 
 MODEL="${NANOVLLM_TEST_MODEL:-$HOME/huggingface/Qwen3-0.6B}"
-MAIN_PATH="${NANOVLLM_MAIN_PATH:-/tmp/nano-vllm-main}"
 OUT_DIR="${COMPARE_OUT_DIR:-$HOME/engine_compare_results}"
 mkdir -p "$OUT_DIR"
 TS="$(date +%Y%m%d_%H%M%S)"
 
-echo "lab root:  $ROOT"
-echo "main path: $MAIN_PATH"
-echo "model:     $MODEL"
+# No flash-attn path (default for this script).
+export NANOVLLM_ATTN_BACKEND=torch
 
-if [[ ! -d "$MAIN_PATH/nanovllm" ]]; then
-  echo "Creating worktree for main at $MAIN_PATH ..."
-  git fetch origin main 2>/dev/null || true
-  # Prefer local main; fall back to origin/main.
-  if git show-ref --verify --quiet refs/heads/main; then
-    git worktree add "$MAIN_PATH" main
-  else
-    git worktree add "$MAIN_PATH" origin/main
-  fi
-fi
+echo "lab root: $ROOT"
+echo "model:    $MODEL"
+echo "attn:     NANOVLLM_ATTN_BACKEND=$NANOVLLM_ATTN_BACKEND (SDPA, no flash-attn)"
 
-echo
-echo "=== package paths (sanity) ==="
-PYTHONPATH="$ROOT" python -c "import nanovllm; print('lab ', nanovllm.__file__)"
-PYTHONPATH="$MAIN_PATH" python -c "import nanovllm; print('main', nanovllm.__file__)"
-
-# Prefer torch SDPA when flash-attn is unavailable (common after vLLM upgrades torch).
-export NANOVLLM_ATTN_BACKEND="${NANOVLLM_ATTN_BACKEND:-auto}"
-
-ENGINES="lab,main"
+ENGINES="lab"
 if python -c "import vllm" 2>/dev/null; then
-  ENGINES="lab,main,vllm"
+  ENGINES="lab,vllm"
   echo "vLLM: available"
 else
-  echo "vLLM: not installed (skip). Install with: pip install vllm"
+  echo "vLLM: not installed"
 fi
-
-# Upstream main still hard-depends on flash-attn; skip it if import fails.
-if ! python -c "import flash_attn" 2>/dev/null; then
-  echo "flash-attn: not importable → skip main; use NANOVLLM_ATTN_BACKEND=torch for lab"
-  export NANOVLLM_ATTN_BACKEND=torch
-  ENGINES="lab"
-  if python -c "import vllm" 2>/dev/null; then
-    ENGINES="lab,vllm"
-  fi
-fi
-echo "engines: $ENGINES (NANOVLLM_ATTN_BACKEND=$NANOVLLM_ATTN_BACKEND)"
+echo "engines: $ENGINES"
 
 python experiments/compare_engines.py \
   --model "$MODEL" \
   --engines "$ENGINES" \
-  --main-path "$MAIN_PATH" \
   --num-seqs 64 \
   --max-input-len 512 \
   --max-output-len 128 \
+  --gpu-memory-utilization 0.85 \
+  --enforce-eager \
   --warmup \
   --skip-missing \
   --json-out "$OUT_DIR/${TS}_compare.json"
