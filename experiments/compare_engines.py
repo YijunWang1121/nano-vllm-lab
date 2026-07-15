@@ -48,6 +48,18 @@ def build_argparser() -> argparse.ArgumentParser:
     p.add_argument("--num-seqs", type=int, default=64)
     p.add_argument("--max-input-len", type=int, default=512)
     p.add_argument("--max-output-len", type=int, default=128)
+    p.add_argument(
+        "--input-len",
+        type=int,
+        default=None,
+        help="Fixed prompt length for every sequence (overrides random 32..max-input-len).",
+    )
+    p.add_argument(
+        "--output-len",
+        type=int,
+        default=None,
+        help="Fixed max_tokens for every sequence (overrides random 16..max-output-len).",
+    )
     p.add_argument("--max-model-len", type=int, default=4096)
     p.add_argument("--gpu-memory-utilization", type=float, default=0.85)
     p.add_argument("--seed", type=int, default=0)
@@ -60,6 +72,11 @@ def build_argparser() -> argparse.ArgumentParser:
     )
     p.add_argument("--json-out", default="")
     p.add_argument("--skip-missing", action="store_true", help="Skip engines that fail")
+    p.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Only print high-level progress (hide worker load spam).",
+    )
     return p
 
 
@@ -75,11 +92,18 @@ def resolve_enforce_eager(args: argparse.Namespace) -> bool:
 def make_workload(args: argparse.Namespace):
     """One shared synthetic batch for all engines (same prompt ids + max_tokens)."""
     seed(args.seed)
-    prompts = [
-        [randint(0, 10000) for _ in range(randint(32, args.max_input_len))]
-        for _ in range(args.num_seqs)
-    ]
-    max_tokens = [randint(16, args.max_output_len) for _ in range(args.num_seqs)]
+    n = args.num_seqs
+    if args.input_len is not None:
+        prompts = [[randint(0, 10000) for _ in range(args.input_len)] for _ in range(n)]
+    else:
+        prompts = [
+            [randint(0, 10000) for _ in range(randint(32, args.max_input_len))]
+            for _ in range(n)
+        ]
+    if args.output_len is not None:
+        max_tokens = [args.output_len] * n
+    else:
+        max_tokens = [randint(16, args.max_output_len) for _ in range(n)]
     return prompts, max_tokens
 
 
@@ -114,7 +138,12 @@ def _cleanup_cuda():
         print(f"  cuda cleanup warning: {exc}")
 
 
-def _run_isolated_worker(worker_src: str, payload: dict, env: dict | None = None) -> dict:
+def _run_isolated_worker(
+    worker_src: str,
+    payload: dict,
+    env: dict | None = None,
+    quiet: bool = False,
+) -> dict:
     """Run one engine in a fresh process so GPU memory is released on exit."""
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
         json.dump(payload, f)
@@ -135,8 +164,9 @@ def _run_isolated_worker(worker_src: str, payload: dict, env: dict | None = None
     assert proc.stdout is not None
     for line in proc.stdout:
         collected.append(line)
-        # Indent worker logs under the engine section.
-        print(f"  | {line}", end="" if line.endswith("\n") else "\n", flush=True)
+        show = (not quiet) or line.startswith(("RESULT ", "PACKAGE ", "flash_impl", "FAILED"))
+        if show:
+            print(f"  | {line}", end="" if line.endswith("\n") else "\n", flush=True)
     rc = proc.wait()
     try:
         os.unlink(payload_path)
@@ -336,7 +366,10 @@ def run_lab(model: str, prompts, max_tokens, args: argparse.Namespace) -> dict:
         "NANOVLLM_ATTN_BACKEND": attn,
     }
     result = _run_isolated_worker(
-        LAB_WORKER, _payload(model, prompts, max_tokens, args, enforce_eager, attn), env=env
+        LAB_WORKER,
+        _payload(model, prompts, max_tokens, args, enforce_eager, attn),
+        env=env,
+        quiet=bool(getattr(args, "quiet", False)),
     )
     elapsed = result["seconds"]
     total = result["total_tokens"]
@@ -369,7 +402,10 @@ def run_main_subprocess(model: str, prompts, max_tokens, args: argparse.Namespac
     # Clear lab-specific backend so main uses its own flash-attn path.
     env.pop("NANOVLLM_ATTN_BACKEND", None)
     result = _run_isolated_worker(
-        MAIN_WORKER, _payload(model, prompts, max_tokens, args, enforce_eager, attn), env=env
+        MAIN_WORKER,
+        _payload(model, prompts, max_tokens, args, enforce_eager, attn),
+        env=env,
+        quiet=bool(getattr(args, "quiet", False)),
     )
     elapsed = result["seconds"]
     total = result["total_tokens"]
@@ -392,7 +428,10 @@ def run_vllm(model: str, prompts, max_tokens, args: argparse.Namespace) -> dict:
         f"gpu_memory_utilization={args.gpu_memory_utilization} prefix_caching=False"
     )
     result = _run_isolated_worker(
-        VLLM_WORKER, _payload(model, prompts, max_tokens, args, enforce_eager, attn), env=None
+        VLLM_WORKER,
+        _payload(model, prompts, max_tokens, args, enforce_eager, attn),
+        env=None,
+        quiet=bool(getattr(args, "quiet", False)),
     )
     elapsed = result["seconds"]
     total = result["total_tokens"]
@@ -434,11 +473,11 @@ def print_table(rows: list[dict]) -> None:
         )
 
 
-def main():
-    args = build_argparser().parse_args()
+def run_comparison(args: argparse.Namespace) -> dict:
+    """Run one shared-workload comparison; returns {model, workload, results, config}."""
     model = os.path.expanduser(args.model)
     if not os.path.isdir(model):
-        raise SystemExit(f"model dir not found: {model}")
+        raise FileNotFoundError(f"model dir not found: {model}")
 
     attn = resolve_attn_backend()
     os.environ["NANOVLLM_ATTN_BACKEND"] = attn
@@ -446,7 +485,14 @@ def main():
     engines = [e.strip() for e in args.engines.split(",") if e.strip()]
     for e in engines:
         if e not in RUNNERS:
-            raise SystemExit(f"unknown engine {e!r}; choose from lab,main,vllm")
+            raise ValueError(f"unknown engine {e!r}; choose from lab,main,vllm")
+
+    if args.input_len is not None and args.output_len is not None:
+        need = args.input_len + args.output_len
+        if need > args.max_model_len:
+            raise ValueError(
+                f"input_len+output_len={need} exceeds max_model_len={args.max_model_len}"
+            )
 
     enforce_eager = resolve_enforce_eager(args)
     # Single shared batch: identical prompt_token_ids + max_tokens for every engine.
@@ -457,6 +503,10 @@ def main():
         f"output_tok={wl['output_tokens']} seed={args.seed} sha256={wl['sha256']} "
         f"(shared by all engines)"
     )
+    if args.input_len is not None or args.output_len is not None:
+        print(
+            f"  fixed lens: input_len={args.input_len} output_len={args.output_len}"
+        )
     print(
         f"config: enforce_eager={enforce_eager} attn={attn} (matched lab↔vLLM) "
         f"gpu_mem_util={args.gpu_memory_utilization} max_model_len={args.max_model_len}"
@@ -482,18 +532,36 @@ def main():
             _cleanup_cuda()
 
     print_table(rows)
+    return {
+        "model": model,
+        "workload": {
+            **wl,
+            "seed": args.seed,
+            "input_len": args.input_len,
+            "output_len": args.output_len,
+            "num_seqs": args.num_seqs,
+        },
+        "config": {
+            "enforce_eager": enforce_eager,
+            "attn": attn,
+            "gpu_memory_utilization": args.gpu_memory_utilization,
+            "max_model_len": args.max_model_len,
+            "engines": engines,
+        },
+        "results": rows,
+    }
+
+
+def main():
+    args = build_argparser().parse_args()
+    try:
+        payload = run_comparison(args)
+    except (FileNotFoundError, ValueError) as exc:
+        raise SystemExit(str(exc)) from exc
     if args.json_out:
         path = os.path.expanduser(args.json_out)
         with open(path, "w", encoding="utf-8") as f:
-            json.dump(
-                {
-                    "model": model,
-                    "workload": {**wl, "seed": args.seed},
-                    "results": rows,
-                },
-                f,
-                indent=2,
-            )
+            json.dump(payload, f, indent=2)
         print(f"wrote {path}")
 
 

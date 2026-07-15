@@ -67,3 +67,28 @@ python experiments/compare_engines.py --engines lab,main,vllm \
 
 Same as `bench.py`: **sum(max_tokens) / wall_clock** after optional warmup.  
 Do not compare these numbers to `example.py` progress-bar Prefill/Decode rates.
+
+## Reliable sweep (recommended)
+
+Single-shot random lengths are noisy. Use the sweep for **fixed shapes × repeats**:
+
+```bash
+# default suite: 8 shapes × 3 seeds  (tens of minutes on 4090)
+bash experiments/run_engine_sweep.sh
+
+# smoke
+SUITE=quick REPEATS=1 bash experiments/run_engine_sweep.sh
+
+# heavier shapes
+SUITE=stress REPEATS=2 bash experiments/run_engine_sweep.sh
+```
+
+Suites (`experiments/sweep_engine_compare.py`):
+
+| suite | cases | intent |
+|-------|------:|--------|
+| `quick` | 2 | smoke |
+| `default` | 8 | decode-heavy / prefill-heavy / short / long-ctx / batch sizes |
+| `stress` | 7 | longer decode / wider batch (may OOM) |
+
+Each case uses **fixed** `input_len` / `output_len` (same token ids across engines; different seed per repeat). Summary prints `mean±std` tok/s and `vs_lab`.
