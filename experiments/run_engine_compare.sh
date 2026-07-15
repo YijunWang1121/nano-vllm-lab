@@ -59,9 +59,10 @@ fi
 if ! python -c "import flash_attn" 2>/dev/null; then
   echo "flash-attn: not importable → skip main; use NANOVLLM_ATTN_BACKEND=torch for lab"
   export NANOVLLM_ATTN_BACKEND=torch
-  ENGINES="${ENGINES//main,/}"
-  ENGINES="${ENGINES//,main/}"
-  ENGINES="${ENGINES//main/lab}"
+  ENGINES="lab"
+  if python -c "import vllm" 2>/dev/null; then
+    ENGINES="lab,vllm"
+  fi
 fi
 echo "engines: $ENGINES (NANOVLLM_ATTN_BACKEND=$NANOVLLM_ATTN_BACKEND)"
 
