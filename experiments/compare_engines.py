@@ -98,31 +98,38 @@ def _run_isolated_worker(worker_src: str, payload: dict, env: dict | None = None
     run_env = os.environ.copy()
     if env:
         run_env.update(env)
-    proc = subprocess.run(
+    # Stream logs live so model-load does not look hung; still collect for RESULT.
+    proc = subprocess.Popen(
         [sys.executable, "-c", worker_src, payload_path],
         env=run_env,
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
         text=True,
-        check=False,
+        bufsize=1,
     )
+    collected: list[str] = []
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        collected.append(line)
+        # Indent worker logs under the engine section.
+        print(f"  | {line}", end="" if line.endswith("\n") else "\n", flush=True)
+    rc = proc.wait()
     try:
         os.unlink(payload_path)
     except OSError:
         pass
-    if proc.returncode != 0:
-        raise RuntimeError(
-            f"worker failed (exit {proc.returncode}):\n"
-            f"{proc.stderr[-2500:]}\n{proc.stdout[-2500:]}"
-        )
+    out = "".join(collected)
+    if rc != 0:
+        raise RuntimeError(f"worker failed (exit {rc}):\n{out[-3000:]}")
     package = ""
     result = None
-    for line in proc.stdout.splitlines():
+    for line in out.splitlines():
         if line.startswith("PACKAGE "):
             package = line[len("PACKAGE ") :]
         if line.startswith("RESULT "):
             result = json.loads(line[len("RESULT ") :])
     if result is None:
-        raise RuntimeError(f"worker produced no RESULT:\n{proc.stdout}\n{proc.stderr}")
+        raise RuntimeError(f"worker produced no RESULT:\n{out[-3000:]}")
     result["package"] = package or result.get("package")
     return result
 
@@ -136,6 +143,7 @@ with open(payload_path) as f:
 from nanovllm import LLM, SamplingParams
 import nanovllm
 print("PACKAGE", nanovllm.__file__, flush=True)
+print("loading LLM ...", flush=True)
 sps = [SamplingParams(temperature=0.6, ignore_eos=True, max_tokens=n) for n in p["max_tokens"]]
 llm = LLM(
     p["model"],
@@ -144,9 +152,12 @@ llm = LLM(
     gpu_memory_utilization=p["gpu_memory_utilization"],
     tensor_parallel_size=1,
 )
+print("LLM ready", flush=True)
 try:
     if p["warmup"]:
+        print("warmup ...", flush=True)
         llm.generate(["warmup"], SamplingParams(max_tokens=4, temperature=0.6), use_tqdm=False)
+    print("timed generate ...", flush=True)
     t0 = time.perf_counter()
     llm.generate(p["prompts"], sps, use_tqdm=False)
     elapsed = time.perf_counter() - t0
