@@ -1,4 +1,4 @@
-"""Milestone 6: attention metadata contracts (CPU, no flash-attn required)."""
+"""Milestone 6: attention metadata contracts (CPU-friendly where possible)."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ import torch
 from nanovllm.course.exceptions import CourseNotImplementedError
 from nanovllm.utils.context import Context, set_context, get_context, reset_context
 from nanovllm.engine.input_metadata import build_prefill_metadata, build_decode_metadata
-from nanovllm.layers.attention import Attention
 from tests.helpers import EXAMPLE_A_PROMPT, make_sequence
 
 
@@ -44,7 +43,12 @@ def test_attention_path_selection_contract_from_metadata():
 
 
 def test_attention_forward_todo_or_runs():
-    """On student branch, forward raises CourseNotImplementedError with TODO id."""
+    """Reference: needs flash-attn. Student: raises CourseNotImplementedError."""
+    try:
+        from nanovllm.layers.attention import Attention
+    except ImportError:
+        pytest.skip("flash-attn/triton not installed")
+
     attn = Attention(num_heads=2, head_dim=4, scale=0.5, num_kv_heads=2)
     q = k = v = torch.zeros(1, 2, 4)
     reset_context()
@@ -56,6 +60,6 @@ def test_attention_forward_todo_or_runs():
         assert "docs/tutorial/07_attention_metadata.md" in str(e)
         return
     except Exception:
-        # Reference/GPU path may fail without flash-attn; that is acceptable on CPU.
+        # Reference path may fail on CPU tensors even with flash-attn installed.
         pytest.skip("Attention kernels unavailable on this platform")
     assert out is not None
