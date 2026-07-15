@@ -1,0 +1,22 @@
+{
+  "source": "Terminal summary of /root/engine_compare_results/20260715_223901_sweep_default.json",
+  "note": "Replace/supplement with the full sweep JSON copied from the pod when available.",
+  "suite": "default",
+  "repeats": 3,
+  "model": "Qwen3-0.6B",
+  "engines": "lab,vllm",
+  "enforce_eager": true,
+  "attn": "vllm_flash / FLASH_ATTN (same vllm_flash_attn .so)",
+  "elapsed_sec_wall": 649.9,
+  "metric": "tok/s = sum(max_tokens) / timed_generate_seconds after warmup",
+  "cases": [
+    {"name": "bs1_in128_out256", "num_seqs": 1, "input_len": 128, "output_len": 256, "lab_mean": 106.2, "lab_std": 6.4, "vllm_mean": 159.8, "vllm_std": 14.2, "vs_lab": 1.50},
+    {"name": "bs8_in128_out256", "num_seqs": 8, "input_len": 128, "output_len": 256, "lab_mean": 751.1, "lab_std": 50.6, "vllm_mean": 1240.5, "vllm_std": 138.7, "vs_lab": 1.65},
+    {"name": "bs8_in1024_out32", "num_seqs": 8, "input_len": 1024, "output_len": 32, "lab_mean": 674.4, "lab_std": 4.9, "vllm_mean": 989.4, "vllm_std": 3.9, "vs_lab": 1.47},
+    {"name": "bs32_in64_out64", "num_seqs": 32, "input_len": 64, "output_len": 64, "lab_mean": 3092.0, "lab_std": 63.8, "vllm_mean": 4498.7, "vllm_std": 580.7, "vs_lab": 1.46},
+    {"name": "bs64_in256_out128", "num_seqs": 64, "input_len": 256, "output_len": 128, "lab_mean": 5569.4, "lab_std": 153.0, "vllm_mean": 6623.9, "vllm_std": 247.8, "vs_lab": 1.19},
+    {"name": "bs32_in256_out128", "num_seqs": 32, "input_len": 256, "output_len": 128, "lab_mean": 2785.0, "lab_std": 209.2, "vllm_mean": 4568.6, "vllm_std": 48.1, "vs_lab": 1.64},
+    {"name": "bs16_in2048_out64", "num_seqs": 16, "input_len": 2048, "output_len": 64, "lab_mean": 1025.4, "lab_std": 76.6, "vllm_mean": 1129.0, "vllm_std": 18.5, "vs_lab": 1.10},
+    {"name": "bs64_in512_out32", "num_seqs": 64, "input_len": 512, "output_len": 32, "lab_mean": 3454.0, "lab_std": 26.4, "vllm_mean": 3279.0, "vllm_std": 12.9, "vs_lab": 0.95}
+  ]
+}

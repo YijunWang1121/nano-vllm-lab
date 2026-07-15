@@ -2,6 +2,9 @@
 
 Branch: `experiments/engine-compare`
 
+**Report (results + interpretation):** [`ENGINE_COMPARE_REPORT.md`](./ENGINE_COMPARE_REPORT.md)  
+**Numeric artifacts:** [`results/`](./results/)
+
 ## What is being compared
 
 | Engine | Source | Notes |
