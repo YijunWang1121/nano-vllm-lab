@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """Fair throughput comparison: course lab vs upstream main vs vLLM.
 
-No-flash-attn mode (recommended after vLLM upgrades torch):
+Matched attention + enforce_eager on both sides:
 
+    # Preferred (flash on lab + vLLM Flash Attention):
+    export NANOVLLM_ATTN_BACKEND=flash
+    python experiments/compare_engines.py --engines lab,vllm --enforce-eager --warmup
+
+    # Fallback when flash-attn ABI is broken (lab SDPA + vLLM TORCH_SDPA):
     export NANOVLLM_ATTN_BACKEND=torch
     python experiments/compare_engines.py --engines lab,vllm --enforce-eager --warmup
 
-SDPA attention is incompatible with nano-vLLM CUDA graphs → always use --enforce-eager
-when NANOVLLM_ATTN_BACKEND=torch.
+SDPA is incompatible with nano-vLLM CUDA graphs → use --enforce-eager with torch/SDPA.
 """
 
 from __future__ import annotations
@@ -143,15 +147,20 @@ with open(payload_path) as f:
 from nanovllm import LLM, SamplingParams
 import nanovllm
 print("PACKAGE", nanovllm.__file__, flush=True)
+print("attn", os.environ.get("NANOVLLM_ATTN_BACKEND"), "enforce_eager", p["enforce_eager"], flush=True)
 print("loading LLM ...", flush=True)
 sps = [SamplingParams(temperature=0.6, ignore_eos=True, max_tokens=n) for n in p["max_tokens"]]
-llm = LLM(
-    p["model"],
+llm_kwargs = dict(
     enforce_eager=p["enforce_eager"],
     max_model_len=p["max_model_len"],
     gpu_memory_utilization=p["gpu_memory_utilization"],
     tensor_parallel_size=1,
 )
+# Align with vLLM worker: no prefix hits on random prompts.
+try:
+    llm = LLM(p["model"], enable_prefix_caching=False, **llm_kwargs)
+except TypeError:
+    llm = LLM(p["model"], **llm_kwargs)
 print("LLM ready", flush=True)
 try:
     if p["warmup"]:
@@ -186,11 +195,23 @@ os.environ.setdefault("VLLM_USE_V1", "0")
 payload_path = sys.argv[1]
 with open(payload_path) as f:
     p = json.load(f)
+# Match lab attention class when running the fair no-flash path.
+attn = (p.get("attn_backend") or os.environ.get("NANOVLLM_ATTN_BACKEND") or "auto").strip().lower()
+if attn in ("torch", "sdpa", "eager"):
+    os.environ["VLLM_ATTENTION_BACKEND"] = "TORCH_SDPA"
+elif attn in ("flash", "auto"):
+    # Leave unset so vLLM picks Flash Attention when available (same class as lab flash-attn).
+    os.environ.pop("VLLM_ATTENTION_BACKEND", None)
 print("loading vLLM ...", flush=True)
 from vllm import LLM, SamplingParams
 import vllm
 print("PACKAGE", vllm.__file__, flush=True)
-print("vllm", getattr(vllm, "__version__", "?"), "VLLM_USE_V1=", os.environ.get("VLLM_USE_V1"), flush=True)
+print(
+    "vllm", getattr(vllm, "__version__", "?"),
+    "VLLM_USE_V1=", os.environ.get("VLLM_USE_V1"),
+    "VLLM_ATTENTION_BACKEND=", os.environ.get("VLLM_ATTENTION_BACKEND", "<auto>"),
+    flush=True,
+)
 sps = [SamplingParams(temperature=0.6, ignore_eos=True, max_tokens=n) for n in p["max_tokens"]]
 reqs = [{"prompt_token_ids": x} for x in p["prompts"]]
 llm = LLM(
@@ -200,6 +221,7 @@ llm = LLM(
     gpu_memory_utilization=p["gpu_memory_utilization"],
     tensor_parallel_size=1,
     disable_log_stats=True,
+    enable_prefix_caching=False,
 )
 print("LLM ready", flush=True)
 try:
@@ -221,11 +243,28 @@ finally:
     except Exception:
         pass
 total = sum(p["max_tokens"])
-print("RESULT", json.dumps({"seconds": elapsed, "total_tokens": total, "version": getattr(vllm, "__version__", "?")}), flush=True)
+print("RESULT", json.dumps({
+    "seconds": elapsed,
+    "total_tokens": total,
+    "version": getattr(vllm, "__version__", "?"),
+    "vllm_attn": os.environ.get("VLLM_ATTENTION_BACKEND", "<auto>"),
+}), flush=True)
 """
 
 
-def _payload(model, prompts, max_tokens, args, enforce_eager: bool) -> dict:
+def resolve_attn_backend() -> str:
+    """Return flash|torch for fair matching. Prefer flash when importable."""
+    env = os.environ.get("NANOVLLM_ATTN_BACKEND", "").strip().lower()
+    if env in ("torch", "sdpa", "eager", "flash"):
+        return "torch" if env != "flash" else "flash"
+    try:
+        from flash_attn import flash_attn_varlen_func  # noqa: F401
+        return "flash"
+    except Exception:
+        return "torch"
+
+
+def _payload(model, prompts, max_tokens, args, enforce_eager: bool, attn_backend: str) -> dict:
     return {
         "model": model,
         "prompts": prompts,
@@ -234,28 +273,32 @@ def _payload(model, prompts, max_tokens, args, enforce_eager: bool) -> dict:
         "gpu_memory_utilization": args.gpu_memory_utilization,
         "enforce_eager": enforce_eager,
         "warmup": args.warmup,
+        "attn_backend": attn_backend,
     }
 
 
 def run_lab(model: str, prompts, max_tokens, args: argparse.Namespace) -> dict:
     enforce_eager = resolve_enforce_eager(args)
-    print(f"  backend={os.environ.get('NANOVLLM_ATTN_BACKEND', 'auto')} enforce_eager={enforce_eager}")
+    attn = resolve_attn_backend()
+    print(f"  backend={attn} enforce_eager={enforce_eager}")
     env = {
         "PYTHONPATH": str(ROOT),
-        "NANOVLLM_ATTN_BACKEND": os.environ.get("NANOVLLM_ATTN_BACKEND", "torch"),
+        "NANOVLLM_ATTN_BACKEND": attn,
     }
     result = _run_isolated_worker(
-        LAB_WORKER, _payload(model, prompts, max_tokens, args, enforce_eager), env=env
+        LAB_WORKER, _payload(model, prompts, max_tokens, args, enforce_eager, attn), env=env
     )
     elapsed = result["seconds"]
     total = result["total_tokens"]
+    kind = "flash-attn" if attn == "flash" else "SDPA/torch"
     return {
         "engine": "lab",
-        "label": f"lab SDPA/torch (enforce_eager={enforce_eager})",
+        "label": f"lab {kind} (enforce_eager={enforce_eager})",
         "seconds": round(elapsed, 4),
         "total_tokens": total,
         "tok_per_s": round(total / elapsed, 2) if elapsed else 0.0,
         "package": result.get("package"),
+        "attn_backend": attn,
     }
 
 
@@ -267,11 +310,12 @@ def run_main_subprocess(model: str, prompts, max_tokens, args: argparse.Namespac
             f"  git worktree add {main_path} main"
         )
     enforce_eager = resolve_enforce_eager(args)
+    attn = resolve_attn_backend()
     env = {"PYTHONPATH": str(main_path)}
     # Clear lab-specific backend so main uses its own flash-attn path.
     env.pop("NANOVLLM_ATTN_BACKEND", None)
     result = _run_isolated_worker(
-        MAIN_WORKER, _payload(model, prompts, max_tokens, args, enforce_eager), env=env
+        MAIN_WORKER, _payload(model, prompts, max_tokens, args, enforce_eager, attn), env=env
     )
     elapsed = result["seconds"]
     total = result["total_tokens"]
@@ -287,19 +331,25 @@ def run_main_subprocess(model: str, prompts, max_tokens, args: argparse.Namespac
 
 def run_vllm(model: str, prompts, max_tokens, args: argparse.Namespace) -> dict:
     enforce_eager = resolve_enforce_eager(args)
-    print(f"  enforce_eager={enforce_eager} gpu_memory_utilization={args.gpu_memory_utilization}")
+    attn = resolve_attn_backend()
+    vllm_attn = "TORCH_SDPA" if attn == "torch" else "FLASH_ATTN(auto)"
+    print(
+        f"  attn={attn}→{vllm_attn} enforce_eager={enforce_eager} "
+        f"gpu_memory_utilization={args.gpu_memory_utilization} prefix_caching=False"
+    )
     result = _run_isolated_worker(
-        VLLM_WORKER, _payload(model, prompts, max_tokens, args, enforce_eager), env=None
+        VLLM_WORKER, _payload(model, prompts, max_tokens, args, enforce_eager, attn), env=None
     )
     elapsed = result["seconds"]
     total = result["total_tokens"]
     return {
         "engine": "vllm",
-        "label": f"vLLM {result.get('version', '?')}",
+        "label": f"vLLM {result.get('version', '?')} {result.get('vllm_attn', vllm_attn)} (eager={enforce_eager})",
         "seconds": round(elapsed, 4),
         "total_tokens": total,
         "tok_per_s": round(total / elapsed, 2) if elapsed else 0.0,
         "package": result.get("package"),
+        "attn_backend": attn,
     }
 
 
@@ -336,9 +386,8 @@ def main():
     if not os.path.isdir(model):
         raise SystemExit(f"model dir not found: {model}")
 
-    # Default no-flash path
-    if "NANOVLLM_ATTN_BACKEND" not in os.environ:
-        os.environ["NANOVLLM_ATTN_BACKEND"] = "torch"
+    attn = resolve_attn_backend()
+    os.environ["NANOVLLM_ATTN_BACKEND"] = attn
 
     engines = [e.strip() for e in args.engines.split(",") if e.strip()]
     for e in engines:
@@ -350,7 +399,7 @@ def main():
     print(
         f"workload: num_seqs={args.num_seqs} max_input={args.max_input_len} "
         f"max_output={args.max_output_len} enforce_eager={enforce_eager} "
-        f"attn={os.environ.get('NANOVLLM_ATTN_BACKEND')} "
+        f"attn={attn} (matched lab↔vLLM) "
         f"gpu_mem_util={args.gpu_memory_utilization}"
     )
 

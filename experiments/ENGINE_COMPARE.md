@@ -21,18 +21,23 @@ Relative to `main`, the lab tree mainly adds:
 
 Default-on behavior should match upstream for a fair bench (`enforce_eager=False`, prefix/preempt/chunked on).
 
-## Attention backend (if flash-attn is broken / too heavy to rebuild)
+## Fair matching (attention + eager)
 
-Installing recent vLLM often upgrades `torch` and breaks an older `flash-attn` binary.
-This branch can fall back to **PyTorch SDPA** (no flash-attn compile):
+`run_engine_compare.sh` keeps **lab and vLLM on the same attention class**:
+
+| Mode | Lab | vLLM |
+|------|-----|------|
+| **flash** (default if `flash_attn` imports) | `NANOVLLM_ATTN_BACKEND=flash` | Flash Attention (auto) |
+| **torch** (fallback) | SDPA | `VLLM_ATTENTION_BACKEND=TORCH_SDPA` + `VLLM_USE_V1=0` |
+
+Both sides use `--enforce-eager` and `enable_prefix_caching=False` for this synthetic workload.
+
+If a previous run forced `NANOVLLM_ATTN_BACKEND=torch`, **unset it** so flash can be used:
 
 ```bash
-export NANOVLLM_ATTN_BACKEND=torch   # or auto (flash if importable, else torch)
+unset NANOVLLM_ATTN_BACKEND
+python -c "from flash_attn import flash_attn_varlen_func; print('flash-attn ok')"
 ```
-
-Note: SDPA path is slower / not identical to flash-attn kernels, but is fine for
-engine A/B smoke and relative comparisons. Upstream `main` still imports flash-attn
-hard; if flash-attn is missing, compare `lab,vllm` only.
 
 ## How to run (GPU)
 
@@ -44,13 +49,9 @@ source ~/venv-nanovllm/bin/activate
 export PYTHONPATH=/nano-vllm-lab
 export NANOVLLM_TEST_MODEL=/root/huggingface/Qwen3-0.6B
 export LD_LIBRARY_PATH="$(find ~/venv-nanovllm/lib/python3.11/site-packages/nvidia -type d -name lib | paste -sd: -):${LD_LIBRARY_PATH:-}"
-export NANOVLLM_ATTN_BACKEND=torch
-
-# optional vLLM
-# pip install vllm
+unset NANOVLLM_ATTN_BACKEND   # let script pick flash if available
 
 bash experiments/run_engine_compare.sh
-# or: python experiments/compare_engines.py --engines lab,vllm --warmup
 ```
 
 Or manually:

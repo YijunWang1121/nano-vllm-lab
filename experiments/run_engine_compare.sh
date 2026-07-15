@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Compare lab (nano-vLLM) vs vLLM WITHOUT flash-attn.
-# Uses PyTorch SDPA + enforce_eager (CUDA graphs incompatible with SDPA fallback).
+# Fair compare: lab vs vLLM with the same attention class + enforce_eager.
+#
+# Default: Flash Attention on both (vLLM already uses it; lab uses flash-attn when importable).
+# Fallback: NANOVLLM_ATTN_BACKEND=torch → lab SDPA + vLLM TORCH_SDPA (V0).
 #
 #   cd /nano-vllm-lab
 #   bash experiments/run_engine_compare.sh
@@ -38,12 +40,18 @@ OUT_DIR="${COMPARE_OUT_DIR:-$HOME/engine_compare_results}"
 mkdir -p "$OUT_DIR"
 TS="$(date +%Y%m%d_%H%M%S)"
 
-# No flash-attn path (default for this script).
-export NANOVLLM_ATTN_BACKEND=torch
+# Pick a fair attention mode: flash if importable, else torch/SDPA on both engines.
+if [[ -z "${NANOVLLM_ATTN_BACKEND:-}" ]]; then
+  if python -c "from flash_attn import flash_attn_varlen_func" 2>/dev/null; then
+    export NANOVLLM_ATTN_BACKEND=flash
+  else
+    export NANOVLLM_ATTN_BACKEND=torch
+  fi
+fi
 
 echo "lab root: $ROOT"
 echo "model:    $MODEL"
-echo "attn:     NANOVLLM_ATTN_BACKEND=$NANOVLLM_ATTN_BACKEND (SDPA, no flash-attn)"
+echo "attn:     NANOVLLM_ATTN_BACKEND=$NANOVLLM_ATTN_BACKEND (matched on lab + vLLM)"
 
 ENGINES="lab"
 if python -c "import vllm" 2>/dev/null; then
