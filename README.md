@@ -70,8 +70,20 @@ Config switches (defaults match upstream behavior):
 
 ```bash
 export PYTHONPATH=.
-python experiments/run_ablation.py --preset all --warmup
-python experiments/run_ablation.py --preset baseline,no_cudagraph,no_prefix --num-seqs 64
+# KV pool size on this GPU (dynamic)
+python experiments/print_kv_capacity.py
+
+# CUDA graph ablation (random prompts)
+python experiments/run_ablation.py --preset baseline,no_cudagraph --warmup
+
+# Prefix-cache ablation (shared system prompt — required to see a gap)
+python experiments/run_ablation.py --preset baseline,no_prefix \
+  --workload shared_prefix --shared-prefix-len 512 --warmup
+
+# Multi-turn chat simulation
+python experiments/run_ablation.py --preset baseline,no_prefix \
+  --workload multi_turn --num-sessions 16 --num-turns 4 \
+  --shared-prefix-len 512 --warmup
 ```
 
 ## Benchmark

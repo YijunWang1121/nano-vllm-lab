@@ -48,6 +48,27 @@ def test_preemption_disabled_raises_when_kv_full():
         sched.schedule()
 
 
+def test_shared_prefix_multi_request_hits_after_hash():
+    """Simulate multi-user / multi-turn: shared system blocks hash-hit for later seqs."""
+    block_size = 4
+    system = [10, 11, 12, 13]  # exactly one full block
+    bm = BlockManager(num_blocks=32, block_size=block_size, enable_prefix_caching=True)
+
+    # First "turn" / first user fills and hashes the system block.
+    a = make_sequence(system + [21, 22], block_size=block_size)
+    n = bm.can_allocate(a)
+    bm.allocate(a, n)
+    a.num_scheduled_tokens = a.num_tokens
+    bm.hash_blocks(a)
+    # Free sequence but keep hashed block available (deallocate drops refcount).
+    bm.deallocate(a)
+
+    # Second user with same system prefix should reuse the hashed block.
+    b = make_sequence(system + [31, 32, 33], block_size=block_size)
+    hits = bm.can_allocate(b)
+    assert hits >= 1
+
+
 def test_chunked_prefill_disabled_refuses_partial():
     config_off = make_scheduler_config(
         num_kvcache_blocks=64,
