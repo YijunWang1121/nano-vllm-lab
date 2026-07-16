@@ -1,0 +1,85 @@
+{
+  "created_utc": "2026-07-16T00:02:26.819465+00:00",
+  "study": "upstream_bench",
+  "ref": "https://github.com/GeeeekExplorer/nano-vllm/blob/main/bench.py",
+  "config": {
+    "num_seqs": 256,
+    "min_input_len": 100,
+    "max_input_len": 1024,
+    "min_output_len": 100,
+    "max_output_len": 1024,
+    "enforce_eager": false,
+    "max_model_len": 4096,
+    "gpu_memory_utilization": 0.9,
+    "prefix_caching": false,
+    "attn": "vllm_flash",
+    "repeats": 1,
+    "base_seed": 0,
+    "model": "/root/huggingface/Qwen3-0.6B"
+  },
+  "upstream_readme_ref": {
+    "hardware_claimed": "RTX 4070 Laptop 8GB",
+    "vllm_tok_s": 1361.84,
+    "nano_tok_s": 1434.13,
+    "note": "Different GPU; compare method/ratio, not absolute tok/s to README."
+  },
+  "elapsed_sec": 101.4,
+  "runs": [
+    {
+      "repeat": 0,
+      "seed": 0,
+      "model": "/root/huggingface/Qwen3-0.6B",
+      "workload": {
+        "num_seqs": 256,
+        "prompt_tokens": 142827,
+        "output_tokens": 133966,
+        "sha256": "14852286be55bc74",
+        "seed": 0,
+        "input_len": null,
+        "output_len": null
+      },
+      "config": {
+        "enforce_eager": false,
+        "attn": "vllm_flash",
+        "gpu_memory_utilization": 0.9,
+        "max_model_len": 4096,
+        "engines": [
+          "lab",
+          "vllm"
+        ]
+      },
+      "results": [
+        {
+          "engine": "lab",
+          "label": "lab vllm_flash_attn (same .so as vLLM) (enforce_eager=False)",
+          "seconds": 22.1645,
+          "total_tokens": 133966,
+          "tok_per_s": 6044.18,
+          "package": "/nano-vllm-lab/nanovllm/__init__.py",
+          "attn_backend": "vllm_flash"
+        },
+        {
+          "engine": "vllm",
+          "label": "vLLM 0.8.5 FLASH_ATTN (eager=False)",
+          "seconds": 25.8122,
+          "total_tokens": 133966,
+          "tok_per_s": 5190.03,
+          "package": "/root/venv-nanovllm/lib/python3.11/site-packages/vllm/__init__.py",
+          "attn_backend": "vllm_flash"
+        }
+      ]
+    }
+  ],
+  "aggregates": {
+    "lab": {
+      "tok_per_s_mean": 6044.18,
+      "tok_per_s_std": 0.0,
+      "n": 1
+    },
+    "vllm": {
+      "tok_per_s_mean": 5190.03,
+      "tok_per_s_std": 0.0,
+      "n": 1
+    }
+  }
+}

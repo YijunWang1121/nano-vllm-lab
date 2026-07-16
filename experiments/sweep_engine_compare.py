@@ -63,6 +63,23 @@ SUITES: dict[str, list[Case]] = {
         Case("bs64_in512_out128", 64, 512, 128, "wide + longer prompt"),
         Case("bs128_in128_out64", 128, 128, 64, "very wide (may OOM)"),
     ],
+    # Isolates CUDA graphs: same flash/prefix=OFF; run with and without --enforce-eager.
+    "graph_ablation": [
+        Case("bs1_in128_out256", 1, 128, 256, "single-stream (latency-like)"),
+        Case("bs8_in128_out256", 8, 128, 256, "small-batch decode-heavy"),
+        Case("bs32_in256_out128", 32, 256, 128, "balanced mid — flip case vs full SLO"),
+        Case("bs64_in512_out32", 64, 512, 32, "prefill-ish large batch"),
+    ],
+    # High load aimed at vLLM strengths under fair flash: eager + decode-heavy + wide/long.
+    # (Graphs-on high load often favors lab on 0.6B — keep enforce_eager=True for this suite.)
+    "vllm_load": [
+        Case("bs8_in128_out1024", 8, 128, 1024, "many decode steps (eager scaffolding)"),
+        Case("bs32_in128_out512", 32, 128, 512, "mid batch × long decode"),
+        Case("bs64_in256_out256", 64, 256, 256, "wide batch × long decode"),
+        Case("bs64_in1024_out128", 64, 1024, 128, "wide + long prompt"),
+        Case("bs16_in2048_out256", 16, 2048, 256, "long context + long decode"),
+        Case("bs128_in256_out128", 128, 256, 128, "very wide (may OOM / KV pressure)"),
+    ],
 }
 
 

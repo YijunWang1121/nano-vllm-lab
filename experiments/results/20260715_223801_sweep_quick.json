@@ -1,0 +1,160 @@
+{
+  "created_utc": "2026-07-15T22:39:01.124915+00:00",
+  "suite": "quick",
+  "repeats": 1,
+  "base_seed": 0,
+  "model": "/root/huggingface/Qwen3-0.6B",
+  "engines": "lab,vllm",
+  "enforce_eager": true,
+  "elapsed_sec": 56.0,
+  "cases": [
+    {
+      "case": {
+        "name": "bs8_in128_out64",
+        "num_seqs": 8,
+        "input_len": 128,
+        "output_len": 64,
+        "note": "smoke"
+      },
+      "engines": {
+        "lab": {
+          "tok_per_s_mean": 732.45,
+          "tok_per_s_std": 0.0,
+          "n": 1,
+          "samples": [
+            732.45
+          ],
+          "vs_lab": 1.0
+        },
+        "vllm": {
+          "tok_per_s_mean": 1352.26,
+          "tok_per_s_std": 0.0,
+          "n": 1,
+          "samples": [
+            1352.26
+          ],
+          "vs_lab": 1.846
+        }
+      },
+      "runs": [
+        {
+          "repeat": 0,
+          "seed": 0,
+          "workload": {
+            "num_seqs": 8,
+            "prompt_tokens": 1024,
+            "output_tokens": 512,
+            "sha256": "98f482f69dfa0807",
+            "seed": 0,
+            "input_len": 128,
+            "output_len": 64
+          },
+          "results": [
+            {
+              "engine": "lab",
+              "label": "lab vllm_flash_attn (same .so as vLLM) (enforce_eager=True)",
+              "seconds": 0.699,
+              "total_tokens": 512,
+              "tok_per_s": 732.45,
+              "package": "/nano-vllm-lab/nanovllm/__init__.py",
+              "attn_backend": "vllm_flash"
+            },
+            {
+              "engine": "vllm",
+              "label": "vLLM 0.8.5 FLASH_ATTN (eager=True)",
+              "seconds": 0.3786,
+              "total_tokens": 512,
+              "tok_per_s": 1352.26,
+              "package": "/root/venv-nanovllm/lib/python3.11/site-packages/vllm/__init__.py",
+              "attn_backend": "vllm_flash"
+            }
+          ],
+          "config": {
+            "enforce_eager": true,
+            "attn": "vllm_flash",
+            "gpu_memory_utilization": 0.85,
+            "max_model_len": 4096,
+            "engines": [
+              "lab",
+              "vllm"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "case": {
+        "name": "bs32_in256_out128",
+        "num_seqs": 32,
+        "input_len": 256,
+        "output_len": 128,
+        "note": "balanced"
+      },
+      "engines": {
+        "lab": {
+          "tok_per_s_mean": 2547.25,
+          "tok_per_s_std": 0.0,
+          "n": 1,
+          "samples": [
+            2547.25
+          ],
+          "vs_lab": 1.0
+        },
+        "vllm": {
+          "tok_per_s_mean": 4543.32,
+          "tok_per_s_std": 0.0,
+          "n": 1,
+          "samples": [
+            4543.32
+          ],
+          "vs_lab": 1.784
+        }
+      },
+      "runs": [
+        {
+          "repeat": 0,
+          "seed": 0,
+          "workload": {
+            "num_seqs": 32,
+            "prompt_tokens": 8192,
+            "output_tokens": 4096,
+            "sha256": "57229830dd67150b",
+            "seed": 0,
+            "input_len": 256,
+            "output_len": 128
+          },
+          "results": [
+            {
+              "engine": "lab",
+              "label": "lab vllm_flash_attn (same .so as vLLM) (enforce_eager=True)",
+              "seconds": 1.608,
+              "total_tokens": 4096,
+              "tok_per_s": 2547.25,
+              "package": "/nano-vllm-lab/nanovllm/__init__.py",
+              "attn_backend": "vllm_flash"
+            },
+            {
+              "engine": "vllm",
+              "label": "vLLM 0.8.5 FLASH_ATTN (eager=True)",
+              "seconds": 0.9015,
+              "total_tokens": 4096,
+              "tok_per_s": 4543.32,
+              "package": "/root/venv-nanovllm/lib/python3.11/site-packages/vllm/__init__.py",
+              "attn_backend": "vllm_flash"
+            }
+          ],
+          "config": {
+            "enforce_eager": true,
+            "attn": "vllm_flash",
+            "gpu_memory_utilization": 0.85,
+            "max_model_len": 4096,
+            "engines": [
+              "lab",
+              "vllm"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

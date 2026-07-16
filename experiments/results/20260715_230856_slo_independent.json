@@ -1,0 +1,176 @@
+{
+  "model": "/root/huggingface/Qwen3-0.6B",
+  "workload": {
+    "kind": "independent",
+    "num_seqs": 32,
+    "output_len": 128,
+    "prefix_len": null,
+    "suffix_len": null,
+    "input_len": 256,
+    "seed": 0
+  },
+  "full_config": {
+    "enforce_eager": false,
+    "enable_prefix_caching": true,
+    "attn": "vllm_flash",
+    "gpu_memory_utilization": 0.9
+  },
+  "slo_thresholds_ms": {
+    "ttft": 500.0,
+    "tpot": 50.0
+  },
+  "results": [
+    {
+      "engine": "lab",
+      "version": null,
+      "config": {
+        "enforce_eager": false,
+        "enable_prefix_caching": true,
+        "attn": "vllm_flash"
+      },
+      "wall_s": 0.533,
+      "num_requests": 32,
+      "total_output_tokens": 4096,
+      "output_tok_per_s": 7684.69,
+      "request_per_s": 60.037,
+      "ttft_ms": {
+        "n": 32,
+        "mean": 64.460192,
+        "p50": 64.45888,
+        "p90": 64.493932,
+        "p99": 64.504218,
+        "min": 64.421484,
+        "max": 64.50546
+      },
+      "tpot_ms": {
+        "n": 32,
+        "mean": 3.688767,
+        "p50": 3.688767,
+        "p90": 3.688767,
+        "p99": 3.688767,
+        "min": 3.688767,
+        "max": 3.688767
+      },
+      "e2e_ms": {
+        "n": 32,
+        "mean": 532.933604,
+        "p50": 532.932292,
+        "p90": 532.967344,
+        "p99": 532.97763,
+        "min": 532.894896,
+        "max": 532.978872
+      },
+      "slo": {
+        "ttft_lt_ms": 500.0,
+        "tpot_lt_ms": 50.0,
+        "ttft_attainment": 1.0,
+        "tpot_attainment": 1.0
+      },
+      "batch": {
+        "mean": 32.0,
+        "max": 32,
+        "n_steps": 128
+      },
+      "kv": {
+        "num_blocks": 697,
+        "block_size": 256,
+        "pool_tokens": 178432,
+        "peak_used_blocks": 64,
+        "peak_used_frac": 0.09182209469153516
+      },
+      "metrics_source": "lab_step_loop",
+      "decode_step_ms": {
+        "n": 127,
+        "mean": 3.66921,
+        "p50": 3.638368,
+        "p90": 3.842285,
+        "p99": 3.882089,
+        "min": 3.517438,
+        "max": 3.907602
+      },
+      "prefill_step_ms": {
+        "n": 1,
+        "mean": 64.325051,
+        "p50": 64.325051,
+        "p90": 64.325051,
+        "p99": 64.325051,
+        "min": 64.325051,
+        "max": 64.325051
+      }
+    },
+    {
+      "engine": "vllm",
+      "version": "0.8.5",
+      "config": {
+        "enforce_eager": false,
+        "enable_prefix_caching": true,
+        "attn": "FLASH_ATTN"
+      },
+      "wall_s": 0.7249,
+      "num_requests": 32,
+      "total_output_tokens": 4096,
+      "output_tok_per_s": 5650.77,
+      "request_per_s": 44.147,
+      "ttft_ms": {
+        "n": 32,
+        "mean": 64.391196,
+        "p50": 64.463496,
+        "p90": 80.754614,
+        "p99": 80.826299,
+        "min": 47.897816,
+        "max": 80.833912
+      },
+      "tpot_ms": {
+        "n": 32,
+        "mean": 5.17165,
+        "p50": 5.171597,
+        "p90": 5.301277,
+        "p99": 5.30137,
+        "min": 5.041879,
+        "max": 5.301382
+      },
+      "e2e_ms": {
+        "n": 32,
+        "mean": 721.190684,
+        "p50": 721.162915,
+        "p90": 721.516323,
+        "p99": 721.631768,
+        "min": 720.856428,
+        "max": 721.656084
+      },
+      "slo": {
+        "ttft_lt_ms": 500.0,
+        "tpot_lt_ms": 50.0,
+        "ttft_attainment": 1.0,
+        "tpot_attainment": 1.0
+      },
+      "batch": {
+        "mean": null,
+        "max": null,
+        "n_steps": 0
+      },
+      "kv": {
+        "note": "see vLLM init logs for # cuda blocks; peak used not exposed here"
+      },
+      "metrics_source": "RequestOutput.metrics",
+      "decode_step_ms": {
+        "n": 0,
+        "mean": null,
+        "p50": null,
+        "p90": null,
+        "p99": null,
+        "min": null,
+        "max": null
+      },
+      "prefill_step_ms": {
+        "n": 0,
+        "mean": null,
+        "p50": null,
+        "p90": null,
+        "p99": null,
+        "min": null,
+        "max": null
+      }
+    }
+  ]
+}

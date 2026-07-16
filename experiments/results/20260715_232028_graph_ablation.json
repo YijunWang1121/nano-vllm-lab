@@ -1,0 +1,119 @@
+{
+  "created_utc": "2026-07-15T23:36:21.028695+00:00",
+  "study": "graph_ablation",
+  "note": "Same shapes/flash/prefix=OFF; only enforce_eager toggled.",
+  "eager_source": "2026-07-15T23:26:02.153343+00:00",
+  "graphs_source": "2026-07-15T23:36:20.152836+00:00",
+  "repeats": 3,
+  "model": "/root/huggingface/Qwen3-0.6B",
+  "cases": [
+    {
+      "case": {
+        "name": "bs1_in128_out256",
+        "num_seqs": 1,
+        "input_len": 128,
+        "output_len": 256,
+        "note": "single-stream (latency-like)"
+      },
+      "eager": {
+        "lab": 102.68,
+        "lab_std": 7.39,
+        "vllm": 167.03,
+        "vllm_std": 17.13,
+        "vs_lab": 1.627
+      },
+      "graphs": {
+        "lab": 446.76,
+        "lab_std": 2.4,
+        "vllm": 347.2,
+        "vllm_std": 0.82,
+        "vs_lab": 0.777
+      },
+      "lab_speedup_graphs_over_eager": 4.351,
+      "vllm_speedup_graphs_over_eager": 2.079,
+      "vs_lab_eager": 1.627,
+      "vs_lab_graphs": 0.777
+    },
+    {
+      "case": {
+        "name": "bs8_in128_out256",
+        "num_seqs": 8,
+        "input_len": 128,
+        "output_len": 256,
+        "note": "small-batch decode-heavy"
+      },
+      "eager": {
+        "lab": 757.05,
+        "lab_std": 17.84,
+        "vllm": 1283.28,
+        "vllm_std": 199.52,
+        "vs_lab": 1.695
+      },
+      "graphs": {
+        "lab": 3026.35,
+        "lab_std": 9.43,
+        "vllm": 2090.3,
+        "vllm_std": 101.32,
+        "vs_lab": 0.691
+      },
+      "lab_speedup_graphs_over_eager": 3.998,
+      "vllm_speedup_graphs_over_eager": 1.629,
+      "vs_lab_eager": 1.695,
+      "vs_lab_graphs": 0.691
+    },
+    {
+      "case": {
+        "name": "bs32_in256_out128",
+        "num_seqs": 32,
+        "input_len": 256,
+        "output_len": 128,
+        "note": "balanced mid \u2014 flip case vs full SLO"
+      },
+      "eager": {
+        "lab": 2972.76,
+        "lab_std": 1.07,
+        "vllm": 4153.58,
+        "vllm_std": 339.71,
+        "vs_lab": 1.397
+      },
+      "graphs": {
+        "lab": 7505.63,
+        "lab_std": 250.21,
+        "vllm": 5747.6,
+        "vllm_std": 52.74,
+        "vs_lab": 0.766
+      },
+      "lab_speedup_graphs_over_eager": 2.525,
+      "vllm_speedup_graphs_over_eager": 1.384,
+      "vs_lab_eager": 1.397,
+      "vs_lab_graphs": 0.766
+    },
+    {
+      "case": {
+        "name": "bs64_in512_out32",
+        "num_seqs": 64,
+        "input_len": 512,
+        "output_len": 32,
+        "note": "prefill-ish large batch"
+      },
+      "eager": {
+        "lab": 3354.11,
+        "lab_std": 189.19,
+        "vllm": 3276.19,
+        "vllm_std": 37.64,
+        "vs_lab": 0.977
+      },
+      "graphs": {
+        "lab": 4228.02,
+        "lab_std": 34.98,
+        "vllm": 3309.21,
+        "vllm_std": 185.65,
+        "vs_lab": 0.783
+      },
+      "lab_speedup_graphs_over_eager": 1.261,
+      "vllm_speedup_graphs_over_eager": 1.01,
+      "vs_lab_eager": 0.977,
+      "vs_lab_graphs": 0.783
+    }
+  ]
+}

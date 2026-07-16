@@ -49,16 +49,28 @@ def build_argparser() -> argparse.ArgumentParser:
     p.add_argument("--max-input-len", type=int, default=512)
     p.add_argument("--max-output-len", type=int, default=128)
     p.add_argument(
+        "--min-input-len",
+        type=int,
+        default=32,
+        help="Min random prompt length when --input-len is unset (upstream bench.py uses 100).",
+    )
+    p.add_argument(
+        "--min-output-len",
+        type=int,
+        default=16,
+        help="Min random max_tokens when --output-len is unset (upstream bench.py uses 100).",
+    )
+    p.add_argument(
         "--input-len",
         type=int,
         default=None,
-        help="Fixed prompt length for every sequence (overrides random 32..max-input-len).",
+        help="Fixed prompt length for every sequence (overrides random min..max-input-len).",
     )
     p.add_argument(
         "--output-len",
         type=int,
         default=None,
-        help="Fixed max_tokens for every sequence (overrides random 16..max-output-len).",
+        help="Fixed max_tokens for every sequence (overrides random min..max-output-len).",
     )
     p.add_argument("--max-model-len", type=int, default=4096)
     p.add_argument("--gpu-memory-utilization", type=float, default=0.85)
@@ -96,14 +108,18 @@ def make_workload(args: argparse.Namespace):
     if args.input_len is not None:
         prompts = [[randint(0, 10000) for _ in range(args.input_len)] for _ in range(n)]
     else:
+        lo_i = max(1, int(args.min_input_len))
+        hi_i = max(lo_i, int(args.max_input_len))
         prompts = [
-            [randint(0, 10000) for _ in range(randint(32, args.max_input_len))]
+            [randint(0, 10000) for _ in range(randint(lo_i, hi_i))]
             for _ in range(n)
         ]
     if args.output_len is not None:
         max_tokens = [args.output_len] * n
     else:
-        max_tokens = [randint(16, args.max_output_len) for _ in range(n)]
+        lo_o = max(1, int(args.min_output_len))
+        hi_o = max(lo_o, int(args.max_output_len))
+        max_tokens = [randint(lo_o, hi_o) for _ in range(n)]
     return prompts, max_tokens
 
 

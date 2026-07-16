@@ -5,6 +5,57 @@ Branch: `experiments/engine-compare`
 **Report (results + interpretation):** [`ENGINE_COMPARE_REPORT.md`](./ENGINE_COMPARE_REPORT.md)  
 **Numeric artifacts:** [`results/`](./results/)
 
+## Upstream-style bench (`bench.py` parity)
+
+Mirror [GeeeekExplorer/nano-vllm `bench.py`](https://github.com/GeeeekExplorer/nano-vllm/blob/main/bench.py):
+
+| Knob | Value |
+|------|--------|
+| `num_seqs` | 256 |
+| prompt len | uniform 100–1024 |
+| `max_tokens` | uniform 100–1024 |
+| `enforce_eager` | **False** (CUDA graphs ON) |
+| `max_model_len` | 4096 |
+| seed | 0 (+ optional repeats) |
+| Attention | matched `vllm_flash` / `FLASH_ATTN` |
+
+```bash
+bash experiments/run_upstream_bench.sh
+REPEATS=3 bash experiments/run_upstream_bench.sh
+```
+
+Upstream README quotes ~1434 vs ~1361 tok/s on an RTX 4070 Laptop — different GPU; use this script for method-matched lab vs vLLM on your box.
+
+## High-load / vLLM-favoring sweep
+
+Push concurrency + decode length under conditions that historically favor vLLM
+(same flash, **graphs OFF**, prefix OFF, high `gpu_memory_utilization`):
+
+```bash
+bash experiments/run_vllm_load_sweep.sh
+# smoke:
+REPEATS=1 bash experiments/run_vllm_load_sweep.sh
+```
+
+Suite `vllm_load`: wide batches, long decode, long context (see `sweep_engine_compare.py`).  
+Note: with graphs **ON**, high offline load on 0.6B often still favors lab (Study E).
+
+## Graph ablation (eager vs CUDA graphs only)
+
+Eager sweep often favors vLLM; full-config SLO often favors lab on offline bs32.  
+To test whether **CUDA graphs** alone cause that flip, keep **prefix OFF** and the same shapes/flash, and toggle only `enforce_eager`:
+
+```bash
+bash experiments/run_graph_ablation.sh
+# faster smoke:
+SUITE=graph_ablation REPEATS=1 bash experiments/run_graph_ablation.sh
+# single flip-case:
+CASES=bs32_in256_out128 REPEATS=3 bash experiments/run_graph_ablation.sh
+```
+
+Writes `*_graph_ablation_eager.json`, `*_graph_ablation_graphs.json`, and a merged table JSON.  
+See `experiments/merge_graph_ablation.py`.
+
 ## Full-config SLO compare (graphs + prefix)
 
 The earlier `run_engine_compare.sh` / sweep used **eager + prefix off** for a controlled same-kernel study.  

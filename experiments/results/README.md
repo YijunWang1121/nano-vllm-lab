@@ -12,6 +12,7 @@ ls -lh ~/engine_compare_results/
 mkdir -p experiments/results
 scp 'runpod:/root/engine_compare_results/20260715_223901_sweep_default.json' experiments/results/
 scp 'runpod:/root/engine_compare_results/20260715_223801_sweep_quick.json' experiments/results/
+scp 'runpod:/root/engine_compare_results/*_graph_ablation.json' experiments/results/
 # optional single-shot compares
 scp 'runpod:/root/engine_compare_results/*_compare.json' experiments/results/
 ```
