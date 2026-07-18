@@ -100,6 +100,10 @@ export NANOVLLM_TEST_MODEL="$HOME/huggingface/Qwen3-0.6B"
 
 The README shows one way to download `Qwen/Qwen3-0.6B`.
 
+## Ownership map
+
+When unsure which component may mutate a field (especially `Sequence.block_table`, `num_cached_tokens`, or Block hash state), read [`docs/reference/ownership.md`](docs/reference/ownership.md). It lists managers vs readers for `Sequence`, `Block` / `BlockManager`, `Scheduler`, `Config`, and `Context`.
+
 ## Implementation Order
 
 Follow the milestone order in `course/milestones.yaml`. Difficulty and time estimates live in that file (`difficulty`, `estimated_hours`) and are shown by `python tools/course_status.py` / `python tools/run_milestone.py N`.

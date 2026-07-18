@@ -41,7 +41,7 @@ The repository separates state transitions by owner:
 
 ## Tensor Shapes
 
-Look in `docs/reference/tensor_shapes.md` for the full reference. For orientation, remember: `block_table` is per sequence, `slot_mapping` is per scheduled token, and KV cache is allocated as `[2, layers, blocks, block_size, kv_heads_per_rank, head_dim]`.
+Look in `docs/reference/tensor_shapes.md` for the full reference, and `docs/reference/ownership.md` for who manages vs who reads each class field. For orientation, remember: `block_table` is per sequence, `slot_mapping` is per scheduled token, and KV cache is allocated as `[2, layers, blocks, block_size, kv_heads_per_rank, head_dim]`.
 
 ## Pseudocode
 
