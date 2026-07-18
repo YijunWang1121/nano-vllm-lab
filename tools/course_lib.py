@@ -17,6 +17,18 @@ except ImportError:
 ROOT = Path(__file__).resolve().parents[1]
 PROGRESS_PATH = ROOT / ".course_progress.json"
 
+DIFFICULTY_ORDER = ("easy", "medium", "hard", "very_hard")
+
+
+def format_milestone_meta(ms: dict) -> str:
+    """Short difficulty + time tag for status / run_milestone banners."""
+    difficulty = ms.get("difficulty", "unknown")
+    hours = ms.get("estimated_hours")
+    if hours is None:
+        return f"difficulty={difficulty}"
+    hours_s = f"{hours:g}" if isinstance(hours, (int, float)) else str(hours)
+    return f"difficulty={difficulty}, ~{hours_s}h"
+
 
 def load_yaml(name: str):
     if yaml is None:

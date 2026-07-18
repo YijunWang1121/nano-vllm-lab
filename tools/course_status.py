@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 from course_lib import (  # noqa: E402
     cleanup_milestone,
+    format_milestone_meta,
     load_progress,
     load_yaml,
     mark_milestone_passed,
@@ -88,7 +89,10 @@ def main():
                 status = "done"
             else:
                 status = "pending"
-            print(f"  [{status:7}] M{ms['number']:02d} ({cpu}) {ms['title']}")
+            print(
+                f"  [{status:7}] M{ms['number']:02d} ({cpu}) {ms['title']} "
+                f"[{format_milestone_meta(ms)}]"
+            )
             print(f"           tests: {'PASS' if ok else 'FAIL'}")
             if not ok:
                 for line in out.splitlines():
@@ -99,7 +103,10 @@ def main():
             # (recorded in .course_progress.json by run_milestone / --run-tests).
             ms_done = milestone_passed(ms["number"], progress)
             status = "done" if ms_done else "pending"
-            print(f"  [{status:7}] M{ms['number']:02d} ({cpu}) {ms['title']}")
+            print(
+                f"  [{status:7}] M{ms['number']:02d} ({cpu}) {ms['title']} "
+                f"[{format_milestone_meta(ms)}]"
+            )
 
         if status == "pending" and first_pending_ms is None:
             first_pending_ms = ms

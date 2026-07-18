@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 from course_lib import (  # noqa: E402
     cleanup_milestone,
+    format_milestone_meta,
     load_yaml,
     mark_milestone_passed,
 )
@@ -47,6 +48,7 @@ def main():
 
     emit(f"=== Milestone {ms['number']}: {ms['title']} ===")
     emit(ms["objective"])
+    emit(f"Effort: {format_milestone_meta(ms)}")
     emit()
     emit("Source files:")
     for f in ms["source_files"]:
