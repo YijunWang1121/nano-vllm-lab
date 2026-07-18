@@ -102,22 +102,24 @@ The README shows one way to download `Qwen/Qwen3-0.6B`.
 
 ## Implementation Order
 
-Follow the milestone order in `course/milestones.yaml`:
+Follow the milestone order in `course/milestones.yaml`. Difficulty and time estimates live in that file (`difficulty`, `estimated_hours`) and are shown by `python tools/course_status.py` / `python tools/run_milestone.py N`.
 
-1. `Sequence` state and block indexing.
-2. Scheduler prefill admission.
-3. Decode scheduling, preemption, and postprocess.
-4. KV-cache block manager.
-5. Model input metadata.
-6. Attention metadata integration.
-7. Sampling.
-8. Fake end-to-end engine.
-9. Eager GPU generation.
-10. CUDA graphs.
-11. Tensor parallelism.
-12. Prefix caching review and integration.
-13. Performance and profiling.
-14. Compare with production vLLM.
+| M | Topic | Difficulty | Est. hours |
+|---|---|---|---|
+| 1 | Sequence state and block indexing | easy | 1.5 |
+| 2 | Scheduler prefill admission | medium | 2.5 |
+| 3 | Decode, preemption, postprocess | medium | 3 |
+| 4 | KV-cache block manager | hard | 6 |
+| 5 | Model input metadata | medium | 3 |
+| 6 | Attention metadata integration | medium | 2.5 |
+| 7 | Sampling | easy | 1 |
+| 8 | Fake end-to-end engine | medium | 2 |
+| 9 | Eager GPU generation | medium | 2 |
+| 10 | CUDA graphs | hard | 5 |
+| 11 | Tensor parallelism | hard | 4 |
+| 12–14 | Prefix-cache review, profiling, compare with vLLM | — | reading / synthesis |
+
+Estimates are focused student hours (read + implement + tests). GPU milestones may take longer if the environment is not set up yet.
 
 The TODO IDs are registered in `course/todos.yaml`. Keep the exact IDs in mind when reading test failures:
 
