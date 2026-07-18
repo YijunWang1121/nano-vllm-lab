@@ -2,6 +2,8 @@
 
 Use this page when debugging tests. Most failures are violations of one of these ownership rules.
 
+For a field-by-field map of **who manages** vs **who reads** each member, see [`ownership.md`](ownership.md).
+
 ## Config
 
 - `nanovllm/config.py` sets `Config.kvcache_block_size=256` by default.
