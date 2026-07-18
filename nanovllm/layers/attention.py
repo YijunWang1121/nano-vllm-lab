@@ -17,7 +17,6 @@ except ImportError:  # CPU-only / course environments
     flash_attn_varlen_func = None
     flash_attn_with_kvcache = None
 
-
 if triton is not None:
 
     @triton.jit
@@ -42,7 +41,6 @@ if triton is not None:
         tl.store(k_cache_ptr + cache_offsets, key)
         tl.store(v_cache_ptr + cache_offsets, value)
 
-
 def store_kvcache(key: torch.Tensor, value: torch.Tensor, k_cache: torch.Tensor, v_cache: torch.Tensor, slot_mapping: torch.Tensor):
     N, num_heads, head_dim = key.shape
     D = num_heads * head_dim
@@ -51,7 +49,6 @@ def store_kvcache(key: torch.Tensor, value: torch.Tensor, k_cache: torch.Tensor,
     assert k_cache.stride(1) == D and v_cache.stride(1) == D
     assert slot_mapping.numel() == N
     store_kvcache_kernel[(N,)](key, key.stride(0), value, value.stride(0), k_cache, v_cache, slot_mapping, D)
-
 
 class Attention(nn.Module):
 
@@ -70,34 +67,29 @@ class Attention(nn.Module):
         self.k_cache = self.v_cache = torch.tensor([])
 
     def forward(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor):
-        # TODO-L2-ATTN-01: Select the attention execution path from Context.
-        #
-        # Goal:
-        # Integrate KV-cache writes and choose prefill vs decode kernels.
-        # Do NOT reimplement FlashAttention — call the provided functions.
-        #
-        # Required behavior:
-        # 1. context = get_context()
-        # 2. If k_cache/v_cache are allocated: store_kvcache(k, v, ..., context.slot_mapping)
-        # 3. If context.is_prefill:
-        #      - If context.block_tables is not None (prefix cache): read K/V from cache
-        #      - o = flash_attn_varlen_func(... cu_seqlens / max_seqlen / block_table ...)
-        #    Else (decode):
-        #      - o = flash_attn_with_kvcache(q.unsqueeze(1), k_cache, v_cache,
-        #             cache_seqlens=context.context_lens, block_table=context.block_tables, ...)
-        # 4. Return o
-        #
-        # Tensor contracts:
-        # - q/k/v: [N_tokens, num_heads, head_dim] (prefill) or decode q with N=batch
-        # - slot_mapping: [N_tokens] int32 physical slots
-        #
-        # Read: docs/tutorial/07_attention_metadata.md
-        # Tests: pytest tests/milestones/test_06_attention_metadata.py
-        from nanovllm.course.exceptions import CourseNotImplementedError
-        raise CourseNotImplementedError(
-            "TODO-L2-ATTN-01",
-            subsystem="attention",
-            tutorial_path="docs/tutorial/07_attention_metadata.md",
-            milestone_test="pytest tests/milestones/test_06_attention_metadata.py",
-            hint="Prefill uses varlen flash-attn; decode uses flash_attn_with_kvcache.",
-        )
+        context = get_context()
+        k_cache, v_cache = self.k_cache, self.v_cache
+        if k_cache.numel() and v_cache.numel():
+            store_kvcache(k, v, k_cache, v_cache, context.slot_mapping)
+        if context.is_prefill:
+            if context.block_tables is not None:  # prefix cache
+                k, v = k_cache, v_cache
+            o = flash_attn_varlen_func(
+                q, k, v,
+                cu_seqlens_q=context.cu_seqlens_q,
+                cu_seqlens_k=context.cu_seqlens_k,
+                max_seqlen_q=context.max_seqlen_q,
+                max_seqlen_k=context.max_seqlen_k,
+                softmax_scale=self.scale,
+                causal=True,
+                block_table=context.block_tables,
+            )
+        else:  # decode
+            o = flash_attn_with_kvcache(
+                q.unsqueeze(1), k_cache, v_cache,
+                cache_seqlens=context.context_lens,
+                block_table=context.block_tables,
+                softmax_scale=self.scale,
+                causal=True,
+            )
+        return o
