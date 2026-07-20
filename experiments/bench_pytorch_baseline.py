@@ -4,14 +4,11 @@
 Uses Transformers + plain ``nn.Linear`` / framework attention (SDPA or eager),
 with no nano-vLLM continuous batching, paged KV, or CUDA-graph decode path.
 
-Workload defaults mirror repo-root ``bench.py`` (seed, num_seqs, length ranges)
-so you can compare tok/s directionally — not a perfectly fair kernel match.
-
 Examples (Linux + CUDA + local model):
 
     python experiments/bench_pytorch_baseline.py
-    python experiments/bench_pytorch_baseline.py --num-seqs 8 --max-input-len 128 --max-output-len 64
-    python experiments/bench_pytorch_baseline.py --mode batched   # padded batch generate
+    python experiments/bench_pytorch_baseline.py --workload chat --chat-turns 3
+    python experiments/bench_pytorch_baseline.py --mode batched
 """
 
 from __future__ import annotations
@@ -24,42 +21,45 @@ import time
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-# Allow `python experiments/bench_pytorch_baseline.py` from repo root.
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from experiments.common_workload import default_model_path, make_workload as shared_make_workload
+from experiments.common_workload import (  # noqa: E402
+    apply_chat_template,
+    default_model_path,
+    make_chat_workload,
+    make_workload,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--model", default=default_model_path())
+    p.add_argument("--workload", choices=("random", "chat"), default="random")
     p.add_argument("--num-seqs", type=int, default=8)
     p.add_argument("--max-input-len", type=int, default=128)
     p.add_argument("--max-output-len", type=int, default=64)
     p.add_argument("--min-input-len", type=int, default=64)
     p.add_argument("--min-output-len", type=int, default=32)
+    p.add_argument("--chat-turns", type=int, default=3)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument(
         "--mode",
         choices=("sequential", "batched"),
         default="sequential",
-        help="sequential: one request at a time (true no-batching baseline); "
-        "batched: one padded batch (still no paged KV / continuous batching).",
     )
     p.add_argument("--dtype", default="bfloat16", choices=("bfloat16", "float16", "float32"))
     p.add_argument(
         "--attn-implementation",
         default="sdpa",
         choices=("sdpa", "eager", "flash_attention_2"),
-        help="Transformers attention backend (stock PyTorch path is usually sdpa/eager).",
     )
     return p
 
 
 @torch.inference_mode()
-def run_sequential(model, prompts: list[list[int]], max_tokens: list[int], device: torch.device):
+def run_sequential_token(model, prompts: list[list[int]], max_tokens: list[int], device: torch.device):
     for ids, n in zip(prompts, max_tokens):
         input_ids = torch.tensor([ids], device=device, dtype=torch.long)
         model.generate(
@@ -71,8 +71,24 @@ def run_sequential(model, prompts: list[list[int]], max_tokens: list[int], devic
 
 
 @torch.inference_mode()
-def run_batched(model, tokenizer, prompts: list[list[int]], max_tokens: list[int], device: torch.device):
-    # One padded batch; decode length = max over requests (HF generate is not per-row max_tokens).
+def run_sequential_text(model, tokenizer, prompts: list[str], max_tokens: list[int], device: torch.device):
+    for text, n in zip(prompts, max_tokens):
+        enc = tokenizer(text, return_tensors="pt")
+        input_ids = enc["input_ids"].to(device)
+        attention_mask = enc.get("attention_mask")
+        if attention_mask is not None:
+            attention_mask = attention_mask.to(device)
+        model.generate(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            max_new_tokens=n,
+            do_sample=False,
+            use_cache=True,
+        )
+
+
+@torch.inference_mode()
+def run_batched_token(model, tokenizer, prompts: list[list[int]], max_tokens: list[int], device: torch.device):
     pad_id = tokenizer.pad_token_id
     if pad_id is None:
         pad_id = tokenizer.eos_token_id
@@ -92,6 +108,24 @@ def run_batched(model, tokenizer, prompts: list[list[int]], max_tokens: list[int
     )
 
 
+@torch.inference_mode()
+def run_batched_text(model, tokenizer, prompts: list[str], max_tokens: list[int], device: torch.device):
+    enc = tokenizer(prompts, return_tensors="pt", padding=True)
+    input_ids = enc["input_ids"].to(device)
+    attention_mask = enc["attention_mask"].to(device)
+    pad_id = tokenizer.pad_token_id
+    if pad_id is None:
+        pad_id = tokenizer.eos_token_id
+    model.generate(
+        input_ids=input_ids,
+        attention_mask=attention_mask,
+        max_new_tokens=max(max_tokens),
+        do_sample=False,
+        use_cache=True,
+        pad_token_id=pad_id,
+    )
+
+
 def main():
     args = build_parser().parse_args()
     if not torch.cuda.is_available():
@@ -103,8 +137,8 @@ def main():
     device = torch.device("cuda")
 
     print(
-        f"baseline=hf_pytorch mode={args.mode} attn={args.attn_implementation} "
-        f"dtype={args.dtype} model={args.model}",
+        f"baseline=hf_pytorch workload={args.workload} mode={args.mode} "
+        f"attn={args.attn_implementation} dtype={args.dtype} model={args.model}",
         flush=True,
     )
 
@@ -125,33 +159,62 @@ def main():
         ).to(device)
     model.eval()
 
-    prompts, max_tokens = shared_make_workload(
-        args.num_seqs,
-        args.min_input_len,
-        args.max_input_len,
-        args.min_output_len,
-        args.max_output_len,
-        args.seed,
-    )
+    if args.workload == "chat":
+        messages_list, max_tokens = make_chat_workload(
+            args.num_seqs,
+            args.min_output_len,
+            args.max_output_len,
+            args.seed,
+            args.chat_turns,
+        )
+        text_prompts = apply_chat_template(tokenizer, messages_list)
+        token_prompts = None
+    else:
+        token_prompts, max_tokens = make_workload(
+            args.num_seqs,
+            args.min_input_len,
+            args.max_input_len,
+            args.min_output_len,
+            args.max_output_len,
+            args.seed,
+        )
+        text_prompts = None
+
     total_tokens = sum(max_tokens)
 
-    # Warmup
-    warm = torch.tensor([prompts[0][:32]], device=device, dtype=torch.long)
-    model.generate(input_ids=warm, max_new_tokens=8, do_sample=False, use_cache=True)
+    if args.workload == "chat":
+        warm = tokenizer(text_prompts[0], return_tensors="pt")
+        warm_ids = warm["input_ids"].to(device)
+        warm_attn = warm.get("attention_mask")
+        if warm_attn is not None:
+            warm_attn = warm_attn.to(device)
+        model.generate(
+            input_ids=warm_ids,
+            attention_mask=warm_attn,
+            max_new_tokens=8,
+            do_sample=False,
+            use_cache=True,
+        )
+    else:
+        warm = torch.tensor([token_prompts[0][:32]], device=device, dtype=torch.long)
+        model.generate(input_ids=warm, max_new_tokens=8, do_sample=False, use_cache=True)
     torch.cuda.synchronize()
 
     t0 = time.perf_counter()
-    if args.mode == "sequential":
-        run_sequential(model, prompts, max_tokens, device)
+    if args.workload == "chat":
+        if args.mode == "sequential":
+            run_sequential_text(model, tokenizer, text_prompts, max_tokens, device)
+        else:
+            run_batched_text(model, tokenizer, text_prompts, max_tokens, device)
+    elif args.mode == "sequential":
+        run_sequential_token(model, token_prompts, max_tokens, device)
     else:
-        run_batched(model, tokenizer, prompts, max_tokens, device)
+        run_batched_token(model, tokenizer, token_prompts, max_tokens, device)
     torch.cuda.synchronize()
     elapsed = time.perf_counter() - t0
 
-    # sequential: each request generates exactly max_tokens[i]
-    # batched: HF uses a single max_new_tokens = max(max_tokens); report both.
     if args.mode == "batched":
-        billed = len(prompts) * max(max_tokens)
+        billed = len(max_tokens) * max(max_tokens)
         print(
             f"Total (sum max_tokens): {total_tokens}tok, "
             f"Total (batched bill = N*max): {billed}tok, "
