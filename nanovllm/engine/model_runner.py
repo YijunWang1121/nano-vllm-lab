@@ -17,7 +17,6 @@ from nanovllm.utils.context import set_context, get_context, reset_context
 from nanovllm.utils.loader import load_model
 from nanovllm.utils.debug import debug_log
 
-
 class ModelRunner:
 
     def __init__(self, config: Config, rank: int, event: Event | list[Event]):
@@ -200,25 +199,6 @@ class ModelRunner:
         if is_prefill or self.enforce_eager or input_ids.size(0) > 512:
             debug_log("runner", "eager_path", is_prefill=is_prefill, bs=input_ids.size(0))
             return self.model.compute_logits(self.model(input_ids, positions))
-        # TODO-L3-CUDAGRAPH-01: Replay a captured decode CUDA graph.
-        #
-        # Goal:
-        # Fast-path decode when graphs are available.
-        #
-        # Required behavior:
-        # 1. bs = input_ids.size(0)
-        # 2. Pick smallest self.graph_bs entry >= bs; graph = self.graphs[graph_bs]
-        # 3. Copy dynamic metadata into self.graph_vars buffers:
-        #    - input_ids/positions [:bs]
-        #    - slot_mapping fill -1 then [:bs] = context.slot_mapping
-        #    - context_lens zero then [:bs] = context.context_lens
-        #    - block_tables[:bs, :context.block_tables.size(1)] = context.block_tables
-        # 4. graph.replay()
-        # 5. return compute_logits(graph_vars["outputs"][:bs])
-        #
-        # Read: docs/tutorial/10_cuda_graphs.md
-        # Tests: pytest -m gpu tests/milestones/test_10_cuda_graphs.py
-        from nanovllm.course.exceptions import CourseNotImplementedError
         
 
         bs = input_ids.size(0)
@@ -235,14 +215,6 @@ class ModelRunner:
         graph.replay()
         return self.model.compute_logits(graph_vars["outputs"][:bs])
 
-        raise CourseNotImplementedError(
-            "TODO-L3-CUDAGRAPH-01",
-            subsystem="cudagraph",
-            tutorial_path="docs/tutorial/10_cuda_graphs.md",
-            milestone_test="pytest -m gpu tests/milestones/test_10_cuda_graphs.py",
-            hint="Copy into static graph_vars, replay, then slice outputs[:bs].",
-        )
-
     def run(self, seqs: list[Sequence], is_prefill: bool) -> list[int]:
         input_ids, positions = self.prepare_prefill(seqs) if is_prefill else self.prepare_decode(seqs)
         temperatures = self.prepare_sample(seqs) if self.rank == 0 else None
@@ -254,22 +226,6 @@ class ModelRunner:
 
     @torch.inference_mode()
     def capture_cudagraph(self):
-        # TODO-L3-CUDAGRAPH-02: Capture decode CUDA graphs for common batch sizes.
-        #
-        # Required behavior:
-        # 1. Allocate static buffers for max_bs = min(max_num_seqs, 512)
-        # 2. graph_bs = [1,2,4,8] + list(range(16, max_bs+1, 16))
-        # 3. For each bs in reversed(graph_bs):
-        #      set_context(decode slices); warmup; capture under torch.cuda.graph
-        #      reuse graph.pool() across captures
-        # 4. Save self.graphs and self.graph_vars for replay
-        #
-        # Called from ModelRunner.__init__ when enforce_eager is False.
-        # Until implemented, construct the engine with enforce_eager=True.
-        #
-        # Read: docs/tutorial/10_cuda_graphs.md
-        # Tests: pytest -m gpu tests/milestones/test_10_cuda_graphs.py
-        from nanovllm.course.exceptions import CourseNotImplementedError
         config = self.config
         hf_config = config.hf_config
         max_bs = min(self.config.max_num_seqs, 512)
@@ -304,10 +260,3 @@ class ModelRunner:
             outputs=outputs,
         )
         return
-        raise CourseNotImplementedError(
-            "TODO-L3-CUDAGRAPH-02",
-            subsystem="cudagraph",
-            tutorial_path="docs/tutorial/10_cuda_graphs.md",
-            milestone_test="pytest -m gpu tests/milestones/test_10_cuda_graphs.py",
-            hint="Capture large-to-small batch sizes and share a graph pool.",
-        )

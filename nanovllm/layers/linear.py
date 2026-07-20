@@ -3,11 +3,9 @@ from torch import nn
 import torch.nn.functional as F
 import torch.distributed as dist
 
-
 def divide(numerator, denominator):
     assert numerator % denominator == 0
     return numerator // denominator
-
 
 class LinearBase(nn.Module):
 
@@ -33,7 +31,6 @@ class LinearBase(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError
 
-
 class ReplicatedLinear(LinearBase):
 
     def __init__(
@@ -50,7 +47,6 @@ class ReplicatedLinear(LinearBase):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return F.linear(x, self.weight, self.bias)
 
-
 class ColumnParallelLinear(LinearBase):
 
     def __init__(
@@ -63,31 +59,15 @@ class ColumnParallelLinear(LinearBase):
         super().__init__(input_size, divide(output_size, tp_size), bias, 0)
 
     def weight_loader(self, param: nn.Parameter, loaded_weight: torch.Tensor):
-        # TODO-L2-TP-01: Load the column-parallel shard for this rank.
-        #
-        # Full weight shape: [output_size, input_size]
-        # Local param shape: [output_size/tp_size, input_size]
-        # tp_dim == 0 (column / output dimension)
-        #
-        # Required:
-        #   shard_size = param.size(tp_dim)
-        #   start = tp_rank * shard_size
-        #   copy loaded_weight.narrow(tp_dim, start, shard_size) into param
-        #
-        # Read: docs/tutorial/11_tensor_parallelism.md
-        # Tests: pytest tests/milestones/test_11_tensor_parallel.py
-        from nanovllm.course.exceptions import CourseNotImplementedError
-        raise CourseNotImplementedError(
-            "TODO-L2-TP-01",
-            subsystem="tensor_parallel",
-            tutorial_path="docs/tutorial/11_tensor_parallelism.md",
-            milestone_test="pytest tests/milestones/test_11_tensor_parallel.py",
-            hint="Narrow the full loaded weight along tp_dim for this rank.",
-        )
+        param_data = param.data
+        shard_size = param_data.size(self.tp_dim)
+        start_idx = self.tp_rank * shard_size
+        loaded_weight = loaded_weight.narrow(self.tp_dim, start_idx, shard_size)
+        param_data.copy_(loaded_weight)
+        return
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return F.linear(x, self.weight, self.bias)
-
 
 class MergedColumnParallelLinear(ColumnParallelLinear):
 
@@ -107,7 +87,6 @@ class MergedColumnParallelLinear(ColumnParallelLinear):
         param_data = param_data.narrow(self.tp_dim, shard_offset, shard_size)
         loaded_weight = loaded_weight.chunk(self.tp_size, self.tp_dim)[self.tp_rank]
         param_data.copy_(loaded_weight)
-
 
 class QKVParallelLinear(ColumnParallelLinear):
 
@@ -143,7 +122,6 @@ class QKVParallelLinear(ColumnParallelLinear):
         loaded_weight = loaded_weight.chunk(self.tp_size, self.tp_dim)[self.tp_rank]
         param_data.copy_(loaded_weight)
 
-
 class RowParallelLinear(LinearBase):
 
     def __init__(
@@ -166,22 +144,7 @@ class RowParallelLinear(LinearBase):
         param_data.copy_(loaded_weight)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # TODO-L3-TP-02: Row-parallel matmul + all-reduce.
-        #
-        # Required:
-        # 1. y = F.linear(x, weight, bias if tp_rank==0 else None)
-        # 2. If tp_size > 1: dist.all_reduce(y)
-        # 3. Return y
-        #
-        # Why bias only on rank 0: avoid N-way bias duplication after all-reduce.
-        #
-        # Read: docs/tutorial/11_tensor_parallelism.md
-        # Tests: pytest tests/milestones/test_11_tensor_parallel.py
-        from nanovllm.course.exceptions import CourseNotImplementedError
-        raise CourseNotImplementedError(
-            "TODO-L3-TP-02",
-            subsystem="tensor_parallel",
-            tutorial_path="docs/tutorial/11_tensor_parallelism.md",
-            milestone_test="pytest tests/milestones/test_11_tensor_parallel.py",
-            hint="Local linear, then all_reduce when world size > 1.",
-        )
+        y = F.linear(x, self.weight, self.bias if self.tp_rank == 0 else None)
+        if self.tp_size > 1:
+            dist.all_reduce(y)
+        return y
