@@ -18,24 +18,28 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 import time
-from random import randint, seed
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+# Allow `python experiments/bench_pytorch_baseline.py` from repo root.
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
+
+from experiments.common_workload import default_model_path, make_workload as shared_make_workload
+
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument(
-        "--model",
-        default=os.path.expanduser(os.environ.get("NANOVLLM_TEST_MODEL", "~/huggingface/Qwen3-0.6B/")),
-    )
-    p.add_argument("--num-seqs", type=int, default=256)
-    p.add_argument("--max-input-len", type=int, default=1024)
-    p.add_argument("--max-output-len", type=int, default=1024)
-    p.add_argument("--min-input-len", type=int, default=100)
-    p.add_argument("--min-output-len", type=int, default=100)
+    p.add_argument("--model", default=default_model_path())
+    p.add_argument("--num-seqs", type=int, default=8)
+    p.add_argument("--max-input-len", type=int, default=128)
+    p.add_argument("--max-output-len", type=int, default=64)
+    p.add_argument("--min-input-len", type=int, default=64)
+    p.add_argument("--min-output-len", type=int, default=32)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument(
         "--mode",
@@ -52,18 +56,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Transformers attention backend (stock PyTorch path is usually sdpa/eager).",
     )
     return p
-
-
-def make_workload(args: argparse.Namespace):
-    seed(args.seed)
-    prompts = [
-        [randint(0, 10000) for _ in range(randint(args.min_input_len, args.max_input_len))]
-        for _ in range(args.num_seqs)
-    ]
-    max_tokens = [
-        randint(args.min_output_len, args.max_output_len) for _ in range(args.num_seqs)
-    ]
-    return prompts, max_tokens
 
 
 @torch.inference_mode()
@@ -117,15 +109,30 @@ def main():
     )
 
     tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
-    model = AutoModelForCausalLM.from_pretrained(
-        args.model,
-        torch_dtype=dtype,
-        attn_implementation=args.attn_implementation,
-        trust_remote_code=True,
-    ).to(device)
+    try:
+        model = AutoModelForCausalLM.from_pretrained(
+            args.model,
+            dtype=dtype,
+            attn_implementation=args.attn_implementation,
+            trust_remote_code=True,
+        ).to(device)
+    except TypeError:
+        model = AutoModelForCausalLM.from_pretrained(
+            args.model,
+            torch_dtype=dtype,
+            attn_implementation=args.attn_implementation,
+            trust_remote_code=True,
+        ).to(device)
     model.eval()
 
-    prompts, max_tokens = make_workload(args)
+    prompts, max_tokens = shared_make_workload(
+        args.num_seqs,
+        args.min_input_len,
+        args.max_input_len,
+        args.min_output_len,
+        args.max_output_len,
+        args.seed,
+    )
     total_tokens = sum(max_tokens)
 
     # Warmup

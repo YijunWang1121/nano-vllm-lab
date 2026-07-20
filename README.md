@@ -60,8 +60,8 @@ outputs[0]["text"]
 
 ## Benchmark
 
-See `bench.py` for nano-vLLM throughput.  
-PyTorch / HuggingFace stock-`generate` baseline (no continuous batching): `experiments/bench_pytorch_baseline.py` (see `experiments/README.md`).
+See `bench.py` for a quick nano-vLLM throughput run.  
+Matched multi-engine compare (nano / PyTorch-serial / vLLM): `bash experiments/run_compare.sh` — details in `experiments/README.md`.
 
 **Test Configuration:**
 - Hardware: RTX 4070 Laptop (8GB)
