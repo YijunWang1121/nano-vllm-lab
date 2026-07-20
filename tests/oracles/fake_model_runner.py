@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from nanovllm.engine.sequence import Sequence
 
-
 class FakeModelRunner:
     """Returns deterministic next-token IDs without a real model."""
 
