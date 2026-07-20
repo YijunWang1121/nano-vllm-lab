@@ -97,6 +97,15 @@ for eng in "${engine_list[@]}"; do
         --attn-implementation sdpa
       ;;
     vllm)
+      if [[ ! -x "$VLLM_PYTHON" ]]; then
+        echo "ERROR: vLLM python not found: $VLLM_PYTHON" >&2
+        echo "Create a separate venv (recommended; vLLM pins its own torch stack):" >&2
+        echo "  python3 -m venv /workspace/venv-vllm" >&2
+        echo "  source /workspace/venv-vllm/bin/activate && pip install vllm" >&2
+        echo "Then rerun with:" >&2
+        echo "  VLLM_PYTHON=/workspace/venv-vllm/bin/python bash experiments/run_compare.sh ..." >&2
+        exit 1
+      fi
       "$VLLM_PYTHON" experiments/bench_vllm.py "${COMMON[@]}" "${EAGER_FLAG[@]}"
       ;;
     *)
