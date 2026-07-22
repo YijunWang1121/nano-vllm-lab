@@ -17,6 +17,7 @@ class Scheduler:
         )
         self.waiting: deque[Sequence] = deque()
         self.running: deque[Sequence] = deque()
+        self.num_preemptions = 0
 
     def is_finished(self):
         return not self.waiting and not self.running
@@ -97,6 +98,8 @@ class Scheduler:
         return scheduled, False
 
     def preempt(self, seq: Sequence):
+        self.num_preemptions += 1
+        debug_log("scheduler", "preempt", seq_id=seq.seq_id, num_tokens=seq.num_tokens)
         seq.status = SequenceStatus.WAITING
         seq.is_prefill = True
         self.block_manager.deallocate(seq)

@@ -95,13 +95,15 @@ def main() -> None:
         llm.generate(prompts, sps, use_tqdm=False)
         elapsed = time.perf_counter() - t0
         cache = llm.scheduler.block_manager.prefix_cache_stats()
+        preemptions = llm.scheduler.num_preemptions
     finally:
         llm.exit()
 
     print(
         f"nanovllm Total={total}tok Time={elapsed:.2f}s "
         f"Throughput={total / elapsed:.2f}tok/s "
-        f"PrefixCacheHit={cache['hit_rate']:.1%} ({cache['cached_tokens']}/{cache['prompt_tokens']}tok)",
+        f"PrefixCacheHit={cache['hit_rate']:.1%} ({cache['cached_tokens']}/{cache['prompt_tokens']}tok) "
+        f"Preemptions={preemptions}",
         flush=True,
     )
 
