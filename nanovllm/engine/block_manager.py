@@ -30,6 +30,9 @@ class BlockManager:
         self.hash_to_block_id: dict[int, int] = dict()
         self.free_block_ids: deque[int] = deque(range(num_blocks))
         self.used_block_ids: set[int] = set()
+        # Cumulative prefix-cache stats (over all allocated sequences).
+        self.total_prompt_tokens = 0
+        self.total_cached_tokens = 0
 
     @classmethod
     def compute_hash(cls, token_ids: list[int], prefix: int = -1):
@@ -89,7 +92,21 @@ class BlockManager:
         for i in range(num_cached_blocks, seq.num_blocks):
             seq.block_table.append(self._allocate_block())
         seq.num_cached_tokens = num_cached_blocks * self.block_size
+        self.total_prompt_tokens += seq.num_tokens
+        self.total_cached_tokens += seq.num_cached_tokens
         return
+
+    def prefix_cache_stats(self) -> dict[str, int | float]:
+        hit_rate = self.total_cached_tokens / self.total_prompt_tokens if self.total_prompt_tokens else 0.0
+        return {
+            "prompt_tokens": self.total_prompt_tokens,
+            "cached_tokens": self.total_cached_tokens,
+            "hit_rate": hit_rate,
+        }
+
+    def reset_prefix_cache_stats(self):
+        self.total_prompt_tokens = 0
+        self.total_cached_tokens = 0
 
     def deallocate(self, seq: Sequence):
         for block_id in reversed(seq.block_table):

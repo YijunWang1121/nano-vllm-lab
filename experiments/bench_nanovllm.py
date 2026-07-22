@@ -90,15 +90,18 @@ def main() -> None:
     try:
         warm = prompts[0] if isinstance(prompts[0], str) else prompts[0][:32]
         llm.generate([warm], SamplingParams(max_tokens=4), use_tqdm=False)
+        llm.scheduler.block_manager.reset_prefix_cache_stats()
         t0 = time.perf_counter()
         llm.generate(prompts, sps, use_tqdm=False)
         elapsed = time.perf_counter() - t0
+        cache = llm.scheduler.block_manager.prefix_cache_stats()
     finally:
         llm.exit()
 
     print(
         f"nanovllm Total={total}tok Time={elapsed:.2f}s "
-        f"Throughput={total / elapsed:.2f}tok/s",
+        f"Throughput={total / elapsed:.2f}tok/s "
+        f"PrefixCacheHit={cache['hit_rate']:.1%} ({cache['cached_tokens']}/{cache['prompt_tokens']}tok)",
         flush=True,
     )
 

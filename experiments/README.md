@@ -72,6 +72,20 @@ python experiments/chat_interactive_demo.py \
   --user-turns "What is CUDA graph?" "When should I disable it?" "Show a tiny example."
 ```
 
+Prefix-cache stress tests (reports cache hit rate; needs prefix >= 512 tokens
+because hits are 256-token-block granular):
+
+```bash
+# N requests sharing a long prompt prefix; cold batch vs warm batch
+python experiments/bench_prefix_cache.py --mode shared_prefix
+
+# real conversation, full history re-sent each turn; nano reuses cached blocks
+python experiments/bench_prefix_cache.py --mode multiturn --turns 6
+
+# same conversation on stateless HF generate for contrast
+python experiments/bench_prefix_cache.py --mode multiturn --turns 6 --hf-baseline
+```
+
 **vLLM setup (RunPod example)**
 
 ```bash
