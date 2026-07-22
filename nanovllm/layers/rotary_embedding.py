@@ -1,3 +1,4 @@
+import math
 from functools import lru_cache
 import torch
 from torch import nn
@@ -14,6 +15,24 @@ def apply_rotary_emb(
     return torch.cat((y1, y2), dim=-1).to(x.dtype)
 
 
+def _apply_llama3_scaling(inv_freq: torch.Tensor, rope_scaling: dict) -> torch.Tensor:
+    """Llama 3.1 frequency scaling (matches HF ROPE_INIT_FUNCTIONS['llama3'])."""
+    factor = rope_scaling["factor"]
+    low_freq_factor = rope_scaling["low_freq_factor"]
+    high_freq_factor = rope_scaling["high_freq_factor"]
+    old_context_len = rope_scaling["original_max_position_embeddings"]
+
+    low_freq_wavelen = old_context_len / low_freq_factor
+    high_freq_wavelen = old_context_len / high_freq_factor
+
+    wavelen = 2 * math.pi / inv_freq
+    inv_freq_scaled = torch.where(wavelen > low_freq_wavelen, inv_freq / factor, inv_freq)
+    smooth = (old_context_len / wavelen - low_freq_factor) / (high_freq_factor - low_freq_factor)
+    smoothed = (1 - smooth) * inv_freq_scaled / factor + smooth * inv_freq_scaled
+    is_medium = (wavelen >= high_freq_wavelen) & (wavelen <= low_freq_wavelen)
+    return torch.where(is_medium, smoothed, inv_freq_scaled)
+
+
 class RotaryEmbedding(nn.Module):
 
     def __init__(
@@ -22,11 +41,18 @@ class RotaryEmbedding(nn.Module):
         rotary_dim: int,
         max_position_embeddings: int,
         base: float,
+        rope_scaling: dict | None = None,
     ) -> None:
         super().__init__()
         self.head_size = head_size
         assert rotary_dim == head_size
         inv_freq = 1.0 / (base**(torch.arange(0, rotary_dim, 2, dtype=torch.float) / rotary_dim))
+        if rope_scaling is not None:
+            rope_type = rope_scaling.get("rope_type", rope_scaling.get("type", "default"))
+            if rope_type == "llama3":
+                inv_freq = _apply_llama3_scaling(inv_freq, rope_scaling)
+            elif rope_type != "default":
+                raise ValueError(f"Unsupported rope_scaling type: {rope_type!r}")
         t = torch.arange(max_position_embeddings, dtype=torch.float)
         freqs = torch.einsum("i,j -> ij", t, inv_freq)
         cos = freqs.cos()
@@ -48,12 +74,24 @@ class RotaryEmbedding(nn.Module):
         return query, key
 
 
-@lru_cache(1)
+@lru_cache(8)
+def _get_rope_cached(
+    head_size: int,
+    rotary_dim: int,
+    max_position: int,
+    base: float,
+    rope_scaling_key: tuple | None,
+):
+    rope_scaling = dict(rope_scaling_key) if rope_scaling_key is not None else None
+    return RotaryEmbedding(head_size, rotary_dim, max_position, base, rope_scaling)
+
+
 def get_rope(
     head_size: int,
     rotary_dim: int,
     max_position: int,
     base: float,
+    rope_scaling: dict | None = None,
 ):
-    rotary_emb = RotaryEmbedding(head_size, rotary_dim, max_position, base)
-    return rotary_emb
+    key = tuple(sorted(rope_scaling.items())) if isinstance(rope_scaling, dict) else None
+    return _get_rope_cached(head_size, rotary_dim, max_position, base, key)
