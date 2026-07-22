@@ -11,10 +11,11 @@ from nanovllm.engine.input_metadata import (
     build_prefill_metadata,
     build_decode_metadata,
 )
-from nanovllm.models.qwen3 import Qwen3ForCausalLM
+from nanovllm.models import create_causal_lm
 from nanovllm.layers.sampler import Sampler
 from nanovllm.utils.context import set_context, get_context, reset_context
 from nanovllm.utils.loader import load_model
+from nanovllm.utils.kvcache import format_kvcache_capacity, kvcache_capacity
 from nanovllm.utils.debug import debug_log
 
 class ModelRunner:
@@ -36,7 +37,7 @@ class ModelRunner:
         default_dtype = torch.get_default_dtype()
         torch.set_default_dtype(hf_config.dtype)
         torch.set_default_device("cuda")
-        self.model = Qwen3ForCausalLM(hf_config)
+        self.model = create_causal_lm(hf_config)
         load_model(self.model, config.model)
         self.sampler = Sampler()
         self.warmup_model()
@@ -129,6 +130,14 @@ class ModelRunner:
         block_bytes = 2 * hf_config.num_hidden_layers * self.block_size * num_kv_heads * head_dim * hf_config.dtype.itemsize
         config.num_kvcache_blocks = int(total * config.gpu_memory_utilization - used - peak + current) // block_bytes
         assert config.num_kvcache_blocks > 0
+        kv_stats = kvcache_capacity(
+            hf_config,
+            num_kvcache_blocks=config.num_kvcache_blocks,
+            block_size=self.block_size,
+            max_model_len=config.max_model_len,
+            tensor_parallel_size=self.world_size,
+        )
+        print(format_kvcache_capacity(kv_stats), flush=True)
         self.kv_cache = torch.empty(2, hf_config.num_hidden_layers, config.num_kvcache_blocks, self.block_size, num_kv_heads, head_dim)
         layer_id = 0
         for module in self.model.modules():

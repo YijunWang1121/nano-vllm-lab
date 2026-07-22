@@ -39,12 +39,23 @@ pip install git+https://github.com/GeeeekExplorer/nano-vllm.git
 
 ## Model Download
 
-To download the model weights manually, use the following command:
+Qwen3 (default for the course):
+
 ```bash
 huggingface-cli download --resume-download Qwen/Qwen3-0.6B \
   --local-dir ~/huggingface/Qwen3-0.6B/ \
   --local-dir-use-symlinks False
 ```
+
+Llama 3.1 8B Instruct (requires HF access approval):
+
+```bash
+huggingface-cli download meta-llama/Meta-Llama-3.1-8B-Instruct \
+  --local-dir ~/huggingface/Meta-Llama-3.1-8B-Instruct
+export NANOVLLM_TEST_MODEL=~/huggingface/Meta-Llama-3.1-8B-Instruct
+```
+
+Supported `model_type` values in nano-vLLM: `qwen3`, `llama`.
 
 ## Quick Start
 
