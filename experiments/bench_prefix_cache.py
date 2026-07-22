@@ -54,6 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--turns", type=int, default=5)
     p.add_argument("--system-len", type=int, default=1024, help="Approx tokens of synthetic system prompt")
     p.add_argument("--hf-baseline", action="store_true", help="Also run stateless HF generate for the same conversation")
+    p.add_argument("--hf-only", action="store_true", help="Run only the stateless HF baseline (no nano engine)")
     p.add_argument("--seed", type=int, default=0)
     return p
 
@@ -167,8 +168,16 @@ def run_multiturn(llm, tokenizer, args) -> list[dict]:
 
 def run_multiturn_hf(args) -> None:
     """Stateless HF baseline: re-prefill full history every turn."""
+    import gc
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    # Reclaim GPU memory left by the nano engine (module cycles need a gc pass
+    # before the caching allocator can actually release the weights).
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
 
     tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
     try:
@@ -218,6 +227,10 @@ def main() -> None:
     args = build_parser().parse_args()
     if not os.path.isdir(args.model):
         raise SystemExit(f"Model directory not found: {args.model}")
+
+    if args.hf_only:
+        run_multiturn_hf(args)
+        return
 
     from nanovllm import LLM, SamplingParams
     from transformers import AutoTokenizer
