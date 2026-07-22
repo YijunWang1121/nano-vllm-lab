@@ -14,6 +14,11 @@
 #   WORKLOAD=chat CHAT_TURNS=3 bash experiments/run_compare.sh --engines nanovllm,pytorch,vllm
 #
 #   ENFORCE_EAGER=0 bash experiments/run_compare.sh --engines nanovllm
+#
+#   # give the HF baseline FlashAttention too (needs flash-attn installed)
+#   HF_ATTN=flash_attention_2 bash experiments/run_compare.sh --engines nanovllm,pytorch
+#   # batched HF baseline instead of one-request-at-a-time
+#   HF_MODE=batched HF_ATTN=flash_attention_2 bash experiments/run_compare.sh --engines pytorch
 
 set -euo pipefail
 
@@ -32,6 +37,9 @@ MAX_OUT="${MAX_OUT:-64}"
 CHAT_TURNS="${CHAT_TURNS:-3}"
 SEED="${SEED:-0}"
 ENFORCE_EAGER="${ENFORCE_EAGER:-1}"
+# HF baseline attention backend: sdpa | eager | flash_attention_2
+HF_ATTN="${HF_ATTN:-sdpa}"
+HF_MODE="${HF_MODE:-sequential}"
 VLLM_PYTHON="${VLLM_PYTHON:-python}"
 
 while [[ $# -gt 0 ]]; do
@@ -93,8 +101,8 @@ for eng in "${engine_list[@]}"; do
     pytorch|torch|hf|serial)
       python experiments/bench_pytorch_baseline.py \
         "${COMMON[@]}" \
-        --mode sequential \
-        --attn-implementation sdpa
+        --mode "$HF_MODE" \
+        --attn-implementation "$HF_ATTN"
       ;;
     vllm)
       if [[ ! -x "$VLLM_PYTHON" ]]; then

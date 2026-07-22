@@ -60,7 +60,17 @@ python example.py
 | `--workload` | Description |
 |--------------|-------------|
 | `random` (default) | Random token IDs; good for offline throughput |
-| `chat` | Multi-turn user/assistant history + final user turn via `apply_chat_template` |
+| `chat` | **Static** multi-turn history: assistant replies are pre-written text, then one generation per request. Good for benchmarking long chat-formatted prompts, not true dialogue. |
+| *(interactive)* | See `chat_interactive_demo.py`: model output is appended each round before the next user message. |
+
+True multi-turn loop (model output → next prompt):
+
+```bash
+python experiments/chat_interactive_demo.py
+python experiments/chat_interactive_demo.py --max-tokens 128
+python experiments/chat_interactive_demo.py \
+  --user-turns "What is CUDA graph?" "When should I disable it?" "Show a tiny example."
+```
 
 **vLLM setup (RunPod example)**
 

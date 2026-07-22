@@ -196,3 +196,6 @@ cython_debug/
 
 # Local course progress (written when milestone tests pass)
 .course_progress.json
+
+# Personal resume notes (not part of the project)
+resume.md
