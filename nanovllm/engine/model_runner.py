@@ -5,6 +5,7 @@ from multiprocessing.synchronize import Event
 from multiprocessing.shared_memory import SharedMemory
 
 from nanovllm.config import Config
+from nanovllm.exceptions import EngineOOMError
 from nanovllm.engine.sequence import Sequence
 from nanovllm.engine.input_metadata import (
     build_block_tables,
@@ -66,6 +67,8 @@ class ModelRunner:
             del self.graphs, self.graph_pool
         if hasattr(self, "kv_cache"):
             del self.kv_cache
+        if hasattr(self, "cpu_kv_cache"):
+            del self.cpu_kv_cache
         if hasattr(self, "model"):
             del self.model
         if hasattr(self, "sampler"):
@@ -146,6 +149,38 @@ class ModelRunner:
                 module.v_cache = self.kv_cache[1, layer_id]
                 layer_id += 1
 
+        if config.kv_swap_enabled:
+            config.num_cpu_kvcache_blocks = int(config.cpu_kvcache_gib * (1024 ** 3)) // block_bytes
+            assert config.num_cpu_kvcache_blocks > 0
+            self.cpu_kv_cache = torch.empty(
+                2, hf_config.num_hidden_layers, config.num_cpu_kvcache_blocks, self.block_size, num_kv_heads, head_dim,
+                device="cpu", pin_memory=True,
+            )
+            print(
+                f"CPU KV swap pool: {config.num_cpu_kvcache_blocks} blocks x {self.block_size} tokens "
+                f"({config.num_cpu_kvcache_blocks * block_bytes / 2**30:.2f} GiB pinned)",
+                flush=True,
+            )
+
+    def swap_out(self, gpu_block_ids: list[int], cpu_block_ids: list[int]):
+        # Synchronous by design: nano-vLLM's engine loop is a single default
+        # CUDA stream with no overlap infra, and Scheduler.preempt()'s
+        # waiting.appendleft() means a just-evicted sequence is often the
+        # very next thing re-admitted -- without a sync here, a swap-in for
+        # the same sequence could H2D-copy from a CPU buffer whose D2H copy
+        # hasn't actually landed yet. Blocking here is simpler and safer
+        # than a per-sequence CUDA event, at the cost of some throughput.
+        for gpu_id, cpu_id in zip(gpu_block_ids, cpu_block_ids):
+            self.cpu_kv_cache[:, :, cpu_id].copy_(self.kv_cache[:, :, gpu_id], non_blocking=True)
+        torch.cuda.synchronize()
+        debug_log("runner", "swap_out", n_blocks=len(gpu_block_ids))
+
+    def swap_in(self, cpu_block_ids: list[int], gpu_block_ids: list[int]):
+        for cpu_id, gpu_id in zip(cpu_block_ids, gpu_block_ids):
+            self.kv_cache[:, :, gpu_id].copy_(self.cpu_kv_cache[:, :, cpu_id], non_blocking=True)
+        torch.cuda.synchronize()
+        debug_log("runner", "swap_in", n_blocks=len(gpu_block_ids))
+
     def prepare_block_tables(self, seqs: list[Sequence]):
         block_tables = build_block_tables(seqs)
         block_tables = torch.tensor(block_tables, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
@@ -225,10 +260,42 @@ class ModelRunner:
         return self.model.compute_logits(graph_vars["outputs"][:bs])
 
     def run(self, seqs: list[Sequence], is_prefill: bool) -> list[int]:
-        input_ids, positions = self.prepare_prefill(seqs) if is_prefill else self.prepare_decode(seqs)
-        temperatures = self.prepare_sample(seqs) if self.rank == 0 else None
-        logits = self.run_model(input_ids, positions, is_prefill)
-        token_ids = self.sampler(logits, temperatures).tolist() if self.rank == 0 else None
+        nvtx_depth = 0
+        try:
+            torch.cuda.nvtx.range_push("prepare_input")
+            nvtx_depth += 1
+            input_ids, positions = self.prepare_prefill(seqs) if is_prefill else self.prepare_decode(seqs)
+            temperatures = self.prepare_sample(seqs) if self.rank == 0 else None
+            torch.cuda.nvtx.range_pop()
+            nvtx_depth -= 1
+            use_graph = not (is_prefill or self.enforce_eager or input_ids.size(0) > 512)
+            torch.cuda.nvtx.range_push(f"run_model[{'graph' if use_graph else 'eager'}]")
+            nvtx_depth += 1
+            logits = self.run_model(input_ids, positions, is_prefill)
+            torch.cuda.nvtx.range_pop()
+            nvtx_depth -= 1
+            torch.cuda.nvtx.range_push("sample")
+            nvtx_depth += 1
+            token_ids = self.sampler(logits, temperatures).tolist() if self.rank == 0 else None
+            torch.cuda.nvtx.range_pop()
+            nvtx_depth -= 1
+        except torch.OutOfMemoryError as e:
+            # A push without its matching pop would leave nvtx's range stack
+            # unbalanced for the rest of the process -- pop whatever this
+            # call started before falling through to the existing recovery.
+            for _ in range(nvtx_depth):
+                torch.cuda.nvtx.range_pop()
+            # reset_context() first: the global _CONTEXT (utils/context.py)
+            # holds live references to this call's CUDA tensors
+            # (slot_mapping/block_tables/...) -- until those references are
+            # dropped, empty_cache() can't reclaim the memory they hold.
+            reset_context()
+            torch.cuda.empty_cache()
+            debug_log("runner", "oom", is_prefill=is_prefill, n_seqs=len(seqs))
+            raise EngineOOMError(
+                f"GPU OOM during {'prefill' if is_prefill else 'decode'} "
+                f"with a batch of {len(seqs)} sequence(s)"
+            ) from e
         debug_log("sampling", "sampled_tokens", token_ids=token_ids)
         reset_context()
         return token_ids

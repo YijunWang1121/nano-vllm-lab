@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import random
 from random import choice, randint, seed
 
 
@@ -27,6 +28,53 @@ def make_workload(
     prompts = [[randint(0, 10000) for _ in range(randint(lo_i, hi_i))] for _ in range(num_seqs)]
     max_tokens = [randint(lo_o, hi_o) for _ in range(num_seqs)]
     return prompts, max_tokens
+
+
+def make_poisson_serving_workload(
+    num_seqs: int,
+    mean_input_len: int = 512,
+    mean_output_len: int = 256,
+    request_rate: float = 4.0,
+    seed_value: int = 0,
+    min_len: int = 4,
+) -> list[tuple[list[int], int, float]]:
+    """Online-serving-style workload: (prompt_token_ids, max_tokens, arrival_time_s).
+
+    Matches vLLM's own benchmark_serving.py conventions (see
+    https://github.com/vllm-project/vllm/blob/main/benchmarks/benchmark_serving.py):
+    lengths sampled from a Poisson distribution around ShareGPT-like means
+    (~512 input / ~256 output tokens for real conversational traces) rather
+    than uniform-random, and *arrival* staggered as a Poisson process at
+    `request_rate` requests/sec (burstiness=1) rather than every request
+    landing at t=0. `request_rate=float("inf")` reproduces the old
+    submit-everything-immediately "offline batch" behavior as a special case.
+
+    Arrival matters here specifically because it's the only way to exercise
+    the actual scenario Config.step_mode="combined"/"unified" target: new
+    prefill work showing up *while* other requests are already mid-decode.
+    A single upfront burst has every request start prefilling together, so
+    it can't distinguish "separate" from "combined"/"unified" scheduling.
+    """
+    rng = random.Random(seed_value)
+    requests = []
+    t = 0.0
+    for _ in range(num_seqs):
+        input_len = _poisson(rng, mean_input_len, min_len)
+        output_len = _poisson(rng, mean_output_len, 1)
+        prompt = [rng.randint(0, 10000) for _ in range(input_len)]
+        requests.append((prompt, output_len, t))
+        if request_rate != float("inf"):
+            t += rng.expovariate(request_rate)  # Poisson process: exponential inter-arrival times
+    return requests
+
+
+def _poisson(rng: random.Random, mean: int, min_len: int) -> int:
+    # Normal approximation to Poisson(mean) (valid for mean well above ~20,
+    # true here at 256/512) -- exact Knuth sampling needs O(mean) draws per
+    # call, needlessly slow for the few hundred-token means used here.
+    if mean <= 0:
+        return min_len
+    return max(min_len, round(rng.gauss(mean, mean ** 0.5)))
 
 
 # Multi-turn chat topics: (opening user question, short assistant reply, follow-up user question)

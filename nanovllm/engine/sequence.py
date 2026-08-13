@@ -26,6 +26,19 @@ class Sequence:
         self.num_scheduled_tokens = 0
         self.is_prefill = True
         self.block_table = []
+        # Set by Scheduler.abort() when this request can never be served
+        # (e.g. a lone decode-phase sequence needs a block the KV-cache pool
+        # will never have) or when its forward pass hit a real CUDA OOM.
+        # Never pickled to TP workers -- an aborted seq never enters a
+        # model_runner.call("run", ...) batch in the first place.
+        self.aborted = False
+        # KV-cache swap bookkeeping (Scheduler-side only; never pickled to
+        # TP workers -- by the time a swapped-in seq is scheduled for run(),
+        # block_table is already repopulated with fresh GPU ids and workers
+        # never need to know the data arrived via H2D copy vs. a forward pass).
+        self.swap_state = "none"  # "none" | "swapped"
+        self.cpu_block_table = []
+        self.num_swapped_tokens = 0
         self.temperature = sampling_params.temperature
         self.max_tokens = sampling_params.max_tokens
         self.ignore_eos = sampling_params.ignore_eos

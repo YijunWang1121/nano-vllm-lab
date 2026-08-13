@@ -35,16 +35,26 @@ def make_scheduler_config(
     *,
     max_num_seqs: int = 8,
     max_num_batched_tokens: int = 64,
+    max_model_len: int = 4096,
     eos: int = 2,
     block_size: int = 4,
     num_kvcache_blocks: int = 32,
+    chunk_prefill_tokens: int = -1,
+    kv_swap_enabled: bool = False,
+    kv_swap_min_tokens: int = 0,
+    num_cpu_kvcache_blocks: int = 32,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         max_num_seqs=max_num_seqs,
         max_num_batched_tokens=max_num_batched_tokens,
+        max_model_len=max_model_len,
         eos=eos,
         kvcache_block_size=block_size,
         num_kvcache_blocks=num_kvcache_blocks,
+        chunk_prefill_tokens=chunk_prefill_tokens,
+        kv_swap_enabled=kv_swap_enabled,
+        kv_swap_min_tokens=kv_swap_min_tokens,
+        num_cpu_kvcache_blocks=num_cpu_kvcache_blocks,
     )
 
 
